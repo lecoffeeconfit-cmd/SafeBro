@@ -1,0 +1,11 @@
+{
+  "name": "sentinel-multicam",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "license": "UNLICENSED",
+  "peerDependencies": {
+    "expo": "*",
+    "expo-modules-core": "*"
+  }
+}

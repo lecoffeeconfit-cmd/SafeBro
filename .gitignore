@@ -1,0 +1,15 @@
+node_modules/
+.expo/
+dist/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+AuthKey_*.p8
+GoogleService-Info.plist
+credentials.json
+secrets.*

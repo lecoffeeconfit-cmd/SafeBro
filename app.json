@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "SafeBro",
+    "slug": "sentinel-mobile",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "scheme": "sentinel",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sentinel.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "SafeBro uses the microphone to record audio and analyze your own recordings locally.",
+        "NSCameraUsageDescription": "SafeBro uses the camera for recordings you start.",
+        "NSSpeechRecognitionUsageDescription": "SafeBro listens for your chosen voice trigger only while Voice Trigger is visibly armed.",
+        "NSPhotoLibraryUsageDescription": "SafeBro lets you attach selected photos to recordings you create.",
+        "NSLocationWhenInUseUsageDescription": "SafeBro uses location during a trip you record to show speed and store route points locally.",
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "android": {
+      "permissions": ["RECORD_AUDIO", "CAMERA", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MICROPHONE"],
+      "adaptiveIcon": {
+        "backgroundColor": "#FFF9E9"
+      }
+    },
+    "plugins": [
+      ["expo-camera", { "cameraPermission": "SafeBro uses the camera for recordings you start." }],
+      ["expo-av", { "microphonePermission": "SafeBro uses the microphone to record audio you start." }],
+      ["expo-location", { "locationWhenInUsePermission": "SafeBro uses location during a trip you record to show speed and store route points locally." }]
+      ,["expo-image-picker", { "photosPermission": "SafeBro lets you attach selected photos to recordings you create." }]
+    ]
+  }
+}
