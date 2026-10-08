@@ -11,6 +11,7 @@ import { exportSession, SessionExportFormat } from './SessionExportService';
 import { getConversationTemplate } from './conversationTemplates';
 import { tripDistanceKm } from '../capture/tripMetrics';
 import { useApp } from '../../context/AppContext';
+import { summarizeDeviceFirst } from '../../ai/DeviceFirstSummary';
 
 type DetailTab = 'overview' | 'transcript' | 'create' | 'export';
 const formats: { id: SessionExportFormat; label: string; icon: string }[] = [
@@ -21,11 +22,12 @@ const formats: { id: SessionExportFormat; label: string; icon: string }[] = [
 const formatTime = (milliseconds: number) => `${Math.floor(milliseconds / 60000)}:${String(Math.floor((milliseconds % 60000) / 1000)).padStart(2, '0')}`;
 
 export function SessionDetailSheet({ session, visible, onClose }: { session: CaptureSession | null; visible: boolean; onClose: () => void }) {
-  const { updateSession } = useApp();
+  const { updateSession, intelligenceMode } = useApp();
   const [tab, setTab] = useState<DetailTab>('overview');
   const [tripNote, setTripNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState<SessionExportFormat | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
   useEffect(() => { setTab('overview'); setMessage(null); setTripNote(''); }, [session?.id]);
   const template = getConversationTemplate(session?.conversationTemplateId);
   const recap = useMemo(() => {
@@ -41,6 +43,20 @@ export function SessionDetailSheet({ session, visible, onClose }: { session: Cap
     try { const uri = await exportSession(session, format); setMessage(uri ? `${format === 'incident_pdf' ? 'Incident report' : formats.find((item) => item.id === format)?.label ?? 'Export'} prepared.` : 'Export cancelled.'); }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Export could not be created.'); }
     finally { setExporting(null); }
+  };
+  const createSummary = async () => {
+    if (summarizing) return;
+    setSummarizing(true);
+    setMessage(null);
+    try {
+      const result = await summarizeDeviceFirst(session, { useDeviceAI: intelligenceMode !== 'off' });
+      updateSession(session.id, { summary: { ...session.summary, quick: result.text, source: result.source, partial: result.partial } });
+      setMessage(result.source === 'device' ? 'Summary created with on-device Apple Intelligence.' : 'Local recap created without an AI service.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The summary could not be created.');
+    } finally {
+      setSummarizing(false);
+    }
   };
   const isDrive = session.useCaseModeId === 'drive' || session.mode === 'dashcam';
   const route = session.locationSamples ?? [];
@@ -70,7 +86,7 @@ export function SessionDetailSheet({ session, visible, onClose }: { session: Cap
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       {tab === 'overview' ? <>
         {isDrive ? <Card style={styles.tripCard}><Label color={colors.blue}>DRIVING TRIP</Label><Text style={styles.tripSummary}>{(tripDistanceKm(route) * 0.621371).toFixed(1)} mi approx. · {route.length} GPS points · {session.markers.filter((marker) => marker.label === 'incident').length} incidents</Text><Text style={styles.help}>Started {new Date(session.startedAt).toLocaleString()}{session.endedAt ? ` · Ended ${new Date(session.endedAt).toLocaleTimeString()}` : ''}</Text><Text style={styles.help}>GPS speed and distance depend on permission and signal accuracy. Event markers show their position in the recording below.</Text><View style={styles.noteRow}><TextInput value={tripNote} onChangeText={setTripNote} placeholder="Add an incident note" placeholderTextColor={colors.textSubtle} style={styles.noteInput} /><Button label="ADD NOTE" compact onPress={addTripNote} /></View><Button label="EXPORT INCIDENT REPORT" icon="▤" variant="secondary" onPress={() => { void runExport('incident_pdf'); }} /></Card> : null}
-        {!isDrive ? <Card style={styles.recapCard}><View style={commonStyles.spread}><Label color={colors.accent}>QUICK RECAP</Label><Badge color={session.summary?.quick ? colors.purple : colors.accent}>{session.summary?.quick ? 'PLUS' : 'LOCAL'}</Badge></View><Text style={styles.recap}>{recap}</Text><Button label="LISTEN TO RECAP" icon="▶" variant="secondary" onPress={() => Speech.speak(recap, { rate: 0.95 })} /></Card> : null}
+        {!isDrive ? <Card style={styles.recapCard}><View style={commonStyles.spread}><Label color={colors.accent}>QUICK RECAP</Label><Badge color={session.summary?.source === 'device' ? colors.purple : colors.accent}>{session.summary?.source === 'device' ? 'ON DEVICE AI' : session.summary?.source === 'cloud' ? 'CLOUD' : 'LOCAL'}</Badge></View><Text style={styles.recap}>{recap}</Text>{session.summary?.partial ? <Text style={styles.help}>Based on selected notes and transcript excerpts.</Text> : null}<Text style={styles.help}>Uses the phone's language model when available. Otherwise it creates a local recap. No AI API is called.</Text><Button label={summarizing ? 'CREATING…' : 'CREATE SUMMARY'} icon="spark" disabled={summarizing || !(session.notes?.length || session.transcript?.length)} onPress={() => { void createSummary(); }} /><Button label="LISTEN TO RECAP" icon="▶" variant="secondary" onPress={() => Speech.speak(recap, { rate: 0.95 })} /></Card> : null}
         <View style={styles.stats}><Stat label="DURATION" value={formatTime(session.segments.reduce((sum, segment) => sum + (segment.durationMs ?? 0), 0))} /><Stat label="MOMENTS" value={String(session.markers.length)} /><Stat label="NOTES" value={String(session.notes?.length ?? 0)} /><Stat label="FILES" value={String(session.attachments?.length ?? 0)} /></View>
         <SectionHeader title="Moments & notes" />
         {!(session.notes?.length || session.markers.length) ? <Text style={styles.empty}>No notes or moments were added.</Text> : <View style={styles.list}>{(session.notes ?? []).map((note) => <View key={note.id} style={styles.item}><Text style={styles.itemTime}>{formatTime(note.timestampMs)}</Text><Text style={styles.itemText}>{note.text}</Text></View>)}{session.markers.map((marker) => <View key={marker.id} style={styles.item}><Text style={styles.itemTime}>{formatTime(marker.timestampMs)}</Text><Text style={styles.itemText}>{marker.label.replaceAll('_', ' ')}{marker.note ? ` · ${marker.note}` : ''}</Text></View>)}</View>}
@@ -79,7 +95,7 @@ export function SessionDetailSheet({ session, visible, onClose }: { session: Cap
         <Card style={styles.transcriptStatus}><View style={commonStyles.spread}><Label color={colors.accent}>LOCAL TRANSCRIPT</Label><Badge color={session.transcript?.length ? colors.accent : colors.orange}>{session.transcript?.length ? 'READY' : 'PENDING'}</Badge></View><Text style={styles.help}>Timestamped transcript lines remain usable without Plus. Speaker memory, translation and generative cleanup are optional Plus tools.</Text></Card>
         {session.transcript?.length ? <View style={styles.transcript}>{session.transcript.map((line) => <Pressable key={line.id} style={styles.transcriptLine}><Text style={styles.itemTime}>{formatTime(line.startTimeMs)}</Text><View style={{ flex: 1 }}><Text style={styles.speaker}>{line.speakerId ?? 'Speaker'}</Text><Text style={styles.transcriptText}>{line.text}</Text></View></Pressable>)}</View> : <Text style={styles.empty}>Local transcription runs after save when the native speech module is available. The original audio and every note remain accessible either way.</Text>}
       </> : null}
-      {tab === 'create' ? <><Text style={styles.help}>Turn this recording into another useful format. Manual exports remain free; generative versions will be part of Plus.</Text><View style={styles.createGrid}>{['Summary', 'Meeting minutes', 'To-do list', 'Follow-up email', 'Study guide', 'Flashcards', 'Quiz', 'Blog post', 'Report', 'Journal entry', 'Podcast recap', 'FAQ'].map((item) => <Pressable key={item} onPress={() => setMessage(`${item} is a future Plus generation tool. Your original recording remains fully usable without it.`)} style={styles.createCard}><FuturisticIcon name="spark" size={21} color={colors.purple} accent={colors.accent} /><Text style={styles.createTitle}>{item}</Text><Badge color={colors.purple}>PLUS</Badge></Pressable>)}</View></> : null}
+      {tab === 'create' ? <><Text style={styles.help}>Create a summary on your phone when its language model is available. Other generated formats are planned for Plus.</Text><View style={styles.createGrid}>{['Summary', 'Meeting minutes', 'To-do list', 'Follow-up email', 'Study guide', 'Flashcards', 'Quiz', 'Blog post', 'Report', 'Journal entry', 'Podcast recap', 'FAQ'].map((item) => <Pressable key={item} onPress={() => { if (item === 'Summary') { void createSummary(); } else { setMessage(`${item} is a future Plus generation tool. Your original recording remains fully usable without it.`); } }} style={styles.createCard}><FuturisticIcon name="spark" size={21} color={colors.purple} accent={colors.accent} /><Text style={styles.createTitle}>{item}</Text><Badge color={item === 'Summary' ? colors.accent : colors.purple}>{item === 'Summary' ? 'DEVICE FIRST' : 'PLUS'}</Badge></Pressable>)}</View></> : null}
       {tab === 'export' ? <><Text style={styles.help}>{isDrive ? 'Share each original clip, a separate incident report, or the local metadata record.' : 'Exports are created locally and open the iOS share sheet. Subtitle exports use timestamped transcript lines when available.'}</Text><View style={styles.exportGrid}>{isDrive ? <Button label="INCIDENT REPORT PDF" icon="▤" compact variant="secondary" disabled={Boolean(exporting)} onPress={() => { void runExport('incident_pdf'); }} style={styles.exportButton} /> : null}{formats.filter((format) => !isDrive || ['pdf', 'json'].includes(format.id)).map((format) => <Button key={format.id} label={exporting === format.id ? 'PREPARING…' : format.label.toUpperCase()} icon={format.icon} compact variant="secondary" disabled={Boolean(exporting)} onPress={() => { void runExport(format.id); }} style={styles.exportButton} />)}</View>{isDrive ? <><SectionHeader title="Original video files" /><View style={styles.exportGrid}>{driveMedia.length ? driveMedia.map((media) => <Button key={`${media.label}:${media.uri}`} label={media.label} icon="◉" compact variant="secondary" onPress={() => { void shareDriveMedia(media.uri, media.label); }} style={styles.exportButton} />) : <Text style={styles.help}>No video file was saved for this trip.</Text>}</View></> : <Card style={styles.exportNote}><Label color={colors.orange}>WORD EXPORT</Label><Text style={styles.help}>DOCX is reserved for the document-rendering module; TXT, Markdown and PDF work now without AI or a subscription.</Text></Card>}</> : null}
       {message ? <Text style={styles.message}>{message}</Text> : null}
     </ScrollView>

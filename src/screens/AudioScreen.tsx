@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import * as Speech from 'expo-speech';
 
 import { Badge, Button, Card, Chip, Label, ScreenHeader, SectionHeader } from '../components/UI';
 import { FuturisticIcon } from '../components/FuturisticIcon';
-import { SignalBeacon, SignalSweep, SignalWave } from '../components/Motion';
+import { PermissionComicPrompt } from '../components/PermissionComicPrompt';
+import { AudioSignalConsole, SignalBeacon } from '../components/Motion';
 import { useApp } from '../context/AppContext';
 import { audioPresets, getAudioPreset } from '../features/capture/audioPresets';
 import { isAudioQuickCaptureMode, quickCaptureModes } from '../features/quickCapture/config';
@@ -16,21 +17,24 @@ import { conversationTemplates, getConversationTemplate } from '../features/audi
 export type AudioPageMode = 'audio' | 'low_power_audio' | 'conversation_audio' | 'audio_guard';
 
 const audioModes: { id: AudioPageMode; title: string; icon: string; detail: string }[] = [
-  { id: 'audio', title: 'Microphone', icon: '◉', detail: 'Record a full local audio session.' },
-  { id: 'low_power_audio', title: 'Low power', icon: '◌', detail: 'Battery-conscious audio recording.' },
-  { id: 'conversation_audio', title: 'Conversation', icon: '◒', detail: 'Record speech-focused audio.' },
-  { id: 'audio_guard', title: 'Audio Guard', icon: '⌁', detail: 'Sound-monitoring preset with manual markers.' },
+  { id: 'audio', title: 'Microphone', icon: 'microphone', detail: 'Record a full local audio session.' },
+  { id: 'low_power_audio', title: 'Low power', icon: 'low-power-audio', detail: 'Battery-conscious audio recording.' },
+  { id: 'conversation_audio', title: 'Conversation', icon: 'conversation', detail: 'Record speech-focused audio.' },
+  { id: 'audio_guard', title: 'Audio Guard', icon: 'audio-guard', detail: 'Sound-monitoring preset with manual markers.' },
 ];
 
 const isAudioSession = (mode: CaptureMode) => mode === 'audio' || mode === 'low_power_audio' || mode === 'conversation_audio';
 
 export function AudioScreen({ mode, onModeChange, onOpenCapture }: { mode: AudioPageMode; onModeChange: (mode: AudioPageMode) => void; onOpenCapture: () => void }) {
-  const { activeSession, audioQuality, setAudioQuality, audioCapturePolicy, setAudioCapturePolicy, conversationTemplateId, setConversationTemplateId, intelligenceMode, setIntelligenceMode, audioEnhancements, setAudioEnhancements, recordingConsentConfirmed, setRecordingConsentConfirmed, audibleConsentAnnouncement, setAudibleConsentAnnouncement, quickCaptureRequest, clearQuickCaptureRequest, isReady, startCapture, stopCapture, pauseCapture, resumeCapture, addMarker, addSessionNote, addSessionAttachment, lockActiveSession, voiceCommands, setVoiceCommand, voiceTriggerArmed, voiceTriggerStatus, voiceTriggerError, armVoiceTrigger, disarmVoiceTrigger } = useApp();
+  const { activeSession, audioQuality, setAudioQuality, audioCapturePolicy, setAudioCapturePolicy, conversationTemplateId, setConversationTemplateId, intelligenceMode, setIntelligenceMode, audioEnhancements, setAudioEnhancements, quickCaptureRequest, clearQuickCaptureRequest, isReady, startCapture, stopCapture, pauseCapture, resumeCapture, addMarker, addSessionNote, addSessionAttachment, lockActiveSession, voiceCommands, setVoiceCommand, voiceTriggerArmed, voiceTriggerStatus, voiceTriggerError, armVoiceTrigger, disarmVoiceTrigger } = useApp();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [noteText, setNoteText] = useState('');
   const [plusMessage, setPlusMessage] = useState<string | null>(null);
+  const [permissionPromptVisible, setPermissionPromptVisible] = useState(false);
+  const pendingAudioMode = useRef<AudioPageMode | null>(null);
+  const microphoneRequestInFlight = useRef(false);
   const selected = audioModes.find((item) => item.id === mode) ?? audioModes[0];
   const preset = useMemo(() => getAudioPreset(audioQuality), [audioQuality]);
   const activeAudio = Boolean(activeSession && isAudioSession(activeSession.mode));
@@ -51,19 +55,68 @@ export function AudioScreen({ mode, onModeChange, onOpenCapture }: { mode: Audio
 
   const beginAudio = async (nextMode: AudioPageMode) => {
     if (activeSession || busy) return;
-    if (!recordingConsentConfirmed) { setError('Confirm that everyone who needs to consent has agreed before recording.'); return; }
+    try {
+      const permission = await Audio.getPermissionsAsync();
+      if (!permission.granted) {
+        pendingAudioMode.current = nextMode;
+        setError(null);
+        setPermissionPromptVisible(true);
+        return;
+      }
+    } catch {
+      // Let AudioRecorder make the native permission request if preflight is unavailable.
+    }
     setBusy(true);
     setError(null);
     try {
-      if (audibleConsentAnnouncement) {
-        Speech.speak('This conversation is being recorded.', { rate: 0.95, pitch: 1 });
-      }
       await startCapture(nextMode === 'audio_guard' ? 'conversation_audio' : nextMode, undefined, nextMode === 'audio_guard' ? 'audio_guard' : undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Audio recording could not start.');
+      if (cause instanceof Error && cause.message === 'MICROPHONE_PERMISSION_DENIED') {
+        setError('Microphone access is needed to record audio.');
+        Alert.alert('Allow microphone access?', 'SafeBro needs microphone access to record. You can enable it in Settings.', [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+        ]);
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Audio recording could not start.');
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  const continueMicrophonePermission = async () => {
+    if (microphoneRequestInFlight.current) return;
+    microphoneRequestInFlight.current = true;
+    setPermissionPromptVisible(false);
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        setError('Microphone access is needed to record audio.');
+        if (!permission.canAskAgain) {
+          Alert.alert('Allow microphone access?', 'Enable microphone access for SafeBro in your device’s Settings, then try again.', [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+          ]);
+        }
+        pendingAudioMode.current = null;
+        return;
+      }
+      setError(null);
+      const requestedMode = pendingAudioMode.current ?? mode;
+      pendingAudioMode.current = null;
+      await beginAudio(requestedMode);
+    } catch (cause) {
+      pendingAudioMode.current = null;
+      setError(cause instanceof Error ? cause.message : 'Microphone access could not be requested.');
+    } finally {
+      microphoneRequestInFlight.current = false;
+    }
+  };
+
+  const cancelMicrophonePermission = () => {
+    pendingAudioMode.current = null;
+    setPermissionPromptVisible(false);
   };
 
   const saveNote = () => {
@@ -108,29 +161,28 @@ export function AudioScreen({ mode, onModeChange, onOpenCapture }: { mode: Audio
   return <View style={commonStyles.screen}><ScrollView contentContainerStyle={commonStyles.content} showsVerticalScrollIndicator={false}>
     <ScreenHeader eyebrow="SAFEBRO" title={activeAudio ? 'Listening locally.' : 'Audio & voice'} detail="Microphone recording, sound options, and voice shortcuts in one place." action={<Badge color={activeAudio ? colors.red : colors.accent}>{activeAudio ? 'LIVE' : 'LOCAL'}</Badge>} />
 
-    {otherCaptureActive ? <Card style={styles.otherSession}><Label color={colors.orange}>CAMERA SESSION ACTIVE</Label><Text style={styles.cardTitle}>Keep recording in Capture</Text><Text style={styles.detail}>Finish the camera session before starting audio. Switching tabs does not stop your recording.</Text><Button label="OPEN CAPTURE" variant="secondary" onPress={onOpenCapture} /></Card> : <>
+    {otherCaptureActive ? <Card style={styles.otherSession}><Label color={colors.orange}>CAMERA SESSION ACTIVE</Label><Text style={styles.cardTitle}>Keep recording in Capture</Text><Text style={styles.detail}>Finish the camera session before starting audio. Switching tabs does not stop your recording.</Text><Button label="OPEN CAPTURE" icon="rear-camera" animatedIcon variant="secondary" onPress={onOpenCapture} /></Card> : <>
       <Card style={styles.recordCard}>
         <View style={styles.recordHeader}><View style={styles.recordHeading}><View style={styles.statusLine}><SignalBeacon active={activeAudio && !paused} color={activeAudio ? paused ? colors.orange : colors.red : colors.accent} /><Label color={activeAudio ? paused ? colors.orange : colors.red : colors.accent}>{activeAudio ? paused ? 'PAUSED' : 'RECORDING' : 'READY TO RECORD'}</Label></View><Text style={styles.recordTitle}>{activeAudio ? activeTitle : selectedTemplate.label}</Text></View><View style={styles.timerBlock}><Text style={styles.timer}>{activeAudio ? formattedElapsed : '00:00:00'}</Text><Text style={styles.timerCaption}>{activeAudio ? 'ELAPSED' : 'READY'}</Text></View></View>
-        <View style={styles.signalArea}><SignalSweep active={activeAudio && !paused} color={activeAudio ? paused ? colors.orange : colors.red : colors.accent} /><SignalWave active={activeAudio && !paused} lowPower={activeSession?.mode === 'low_power_audio'} spectrum color={activeAudio ? paused ? colors.orange : colors.red : colors.accent} style={styles.signalWave} /></View>
+        <View style={styles.signalArea}><AudioSignalConsole active={activeAudio && !paused} paused={Boolean(paused)} /></View>
         <View style={styles.recordStats}><Text style={styles.detail}>{activeAudio ? `${activeSession?.notes?.length ?? 0} notes · ${activeSession?.attachments?.length ?? 0} attachments` : selected.detail}</Text><Text style={styles.storageEstimate}>{activeAudio ? `≈ ${estimatedMegabytes} MB` : 'DEVICE ONLY'}</Text></View>
-        {activeAudio ? <View style={styles.activeControls}><Button label={paused ? 'RESUME' : 'PAUSE'} icon={paused ? '▶' : 'Ⅱ'} variant="secondary" onPress={() => { void (paused ? resumeCapture() : pauseCapture()); }} style={styles.activeControl} /><Button label="STOP & SAVE" icon="■" variant="danger" disabled={busy} onPress={() => { void endAudio(); }} style={styles.activeControl} /></View> : <Button label={`START ${selectedTemplate.label.toUpperCase()}`} icon="●" variant="primary" disabled={busy} onPress={() => { void beginAudio(mode); }} style={styles.startButton} />}
+        {activeAudio ? <View style={styles.activeControls}><Button label={paused ? 'RESUME' : 'PAUSE'} icon={paused ? 'play' : 'pause'} animatedIcon variant="secondary" onPress={() => { void (paused ? resumeCapture() : pauseCapture()); }} style={styles.activeControl} /><Button label="STOP & SAVE" icon="stop" animatedIcon variant="danger" disabled={busy} onPress={() => { void endAudio(); }} style={styles.activeControl} /></View> : <Button label={`START ${selectedTemplate.label.toUpperCase()}`} icon="microphone" animatedIcon variant="primary" disabled={busy} onPress={() => { void beginAudio(mode); }} style={styles.startButton} />}
+        {!activeAudio ? <Text style={styles.permissionHint}>A short SafeBro explainer appears first; then iOS asks for microphone access.</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </Card>
       {activeAudio ? <>
         <Card style={styles.liveTools}>
           <View style={commonStyles.spread}><View><Label color={colors.accent}>LIVE NOTES</Label><Text style={styles.cardTitle}>Capture context as it happens</Text></View><Badge>{activeSession?.conversationTemplateId?.replaceAll('_', ' ').toUpperCase() ?? 'GENERAL'}</Badge></View>
-          <View style={styles.noteRow}><TextInput value={noteText} onChangeText={setNoteText} onSubmitEditing={saveNote} placeholder="Type a note or chapter title…" placeholderTextColor={colors.textSubtle} style={styles.noteInput} /><Button label="SAVE" compact disabled={!noteText.trim()} onPress={saveNote} /></View>
-          <View style={styles.liveActionGrid}><Button label="IMPORTANT · 30S" icon="★" compact variant="secondary" onPress={markImportant} style={styles.liveAction} /><Button label="ADD PHOTO" icon="▧" compact variant="secondary" onPress={() => { void attachPhoto(); }} style={styles.liveAction} /><Button label="BOOKMARK" icon="◆" compact variant="secondary" onPress={() => addMarker('custom')} style={styles.liveAction} /><Button label="LOCK" icon="⌑" compact variant="secondary" onPress={lockActiveSession} style={styles.liveAction} /></View>
+          <View style={styles.noteRow}><TextInput value={noteText} onChangeText={setNoteText} onSubmitEditing={saveNote} placeholder="Type a note or chapter title…" placeholderTextColor={colors.textSubtle} style={styles.noteInput} /><Button label="SAVE" icon="save" animatedIcon compact disabled={!noteText.trim()} onPress={saveNote} /></View>
+          <View style={styles.liveActionGrid}><Button label="IMPORTANT · 30S" icon="bookmark" animatedIcon compact variant="secondary" onPress={markImportant} style={styles.liveAction} /><Button label="ADD PHOTO" icon="image" animatedIcon compact variant="secondary" onPress={() => { void attachPhoto(); }} style={styles.liveAction} /><Button label="BOOKMARK" icon="bookmark" animatedIcon compact variant="secondary" onPress={() => addMarker('custom')} style={styles.liveAction} /><Button label="LOCK" icon="lock" animatedIcon compact variant="secondary" onPress={lockActiveSession} style={styles.liveAction} /></View>
           <Text style={styles.footnote}>Audio continues with the screen locked or app minimized where iOS background-audio rules allow. Notes and attachments stay local.</Text>
         </Card>
       </> : <>
         <SectionHeader title="Conversation type" action="SMART PRESETS" />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.templateRow}>{conversationTemplates.map((template) => <Pressable key={template.id} onPress={() => setConversationTemplateId(template.id)} style={({ pressed }) => [styles.templateCard, conversationTemplateId === template.id && styles.templateCardSelected, pressed && styles.optionPressed]}><FuturisticIcon name={template.icon} size={38} framed color={colors.accent} accent={conversationTemplateId === template.id ? colors.yellow : colors.aqua} /><Text style={[styles.templateTitle, conversationTemplateId === template.id && { color: colors.accent }]}>{template.label}</Text><Text style={styles.templateDetail}>{template.detail}</Text></Pressable>)}</ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.templateRow}>{conversationTemplates.map((template) => <Pressable key={template.id} onPress={() => setConversationTemplateId(template.id)} style={({ pressed }) => [styles.templateCard, conversationTemplateId === template.id && styles.templateCardSelected, pressed && styles.optionPressed]}><FuturisticIcon name={template.icon} size={38} framed animated color={colors.accent} accent={conversationTemplateId === template.id ? colors.yellow : colors.aqua} /><Text style={[styles.templateTitle, conversationTemplateId === template.id && { color: colors.accent }]}>{template.label}</Text><Text style={styles.templateDetail}>{template.detail}</Text></Pressable>)}</ScrollView>
         <Card style={styles.templateSummary}><View style={commonStyles.spread}><View style={{ flex: 1 }}><Label color={colors.accent}>{selectedTemplate.label.toUpperCase()}</Label><Text style={styles.cardTitle}>{selectedTemplate.detail}</Text></View><Badge color={colors.accent}>LOCAL READY</Badge></View><Text style={styles.featureLine}>Included: {selectedTemplate.localOutputs.join(' · ')}</Text><Text style={styles.plusLine}>Plus later: {selectedTemplate.plusOutputs.join(' · ')}</Text>{selectedTemplate.privacyNote ? <Text style={styles.privacyNote}>{selectedTemplate.privacyNote}</Text> : null}</Card>
-        <SectionHeader title="Recording consent" action={recordingConsentConfirmed ? 'CONFIRMED' : 'REQUIRED'} />
-        <Card style={[styles.consentCard, recordingConsentConfirmed && styles.consentCardConfirmed]}><Text style={styles.cardTitle}>Make sure everyone has agreed</Text><Text style={styles.detail}>Recording laws vary by place and context. SafeBro is designed for visible, consented recording.</Text><View style={styles.chips}><Chip label="CONSENT CONFIRMED" selected={recordingConsentConfirmed} onPress={() => setRecordingConsentConfirmed(!recordingConsentConfirmed)} color={colors.accent} /><Chip label="AUDIBLE ANNOUNCEMENT" selected={audibleConsentAnnouncement} onPress={() => setAudibleConsentAnnouncement(!audibleConsentAnnouncement)} color={colors.orange} /></View></Card>
         <SectionHeader title="Recording modes" action="AUDIO ONLY" />
-        <View style={styles.modeGrid}>{audioModes.map((item) => <Pressable key={item.id} onPress={() => onModeChange(item.id)} accessibilityRole="button" accessibilityState={{ selected: mode === item.id }} style={({ pressed }) => [styles.modeCard, mode === item.id && styles.modeCardSelected, pressed && styles.optionPressed]}><FuturisticIcon name={item.icon} size={40} framed color={mode === item.id ? colors.accent : colors.text} accent={mode === item.id ? colors.yellow : colors.aqua} /><Text style={styles.modeTitle}>{item.title}</Text><Text style={styles.modeDetail}>{item.detail}</Text></Pressable>)}</View>
+        <View style={styles.modeGrid}>{audioModes.map((item) => <Pressable key={item.id} onPress={() => onModeChange(item.id)} accessibilityRole="button" accessibilityState={{ selected: mode === item.id }} style={({ pressed }) => [styles.modeCard, mode === item.id && styles.modeCardSelected, pressed && styles.optionPressed]}><FuturisticIcon name={item.icon} size={40} framed animated color={mode === item.id ? colors.accent : colors.text} accent={mode === item.id ? colors.yellow : colors.aqua} /><Text style={styles.modeTitle}>{item.title}</Text><Text style={styles.modeDetail}>{item.detail}</Text></Pressable>)}</View>
         {mode === 'conversation_audio' || mode === 'audio_guard' ? <Card style={styles.notice}><Label color={colors.orange}>{mode === 'audio_guard' ? 'AUDIO GUARD' : 'CONVERSATION MODE'}</Label><Text style={styles.detail}>Recording works now. Automatic speech or selected-sound detection, pre-event buffering, and clip-only saving still require the native audio event pipeline. Use Mark Moment to bookmark an event today.</Text></Card> : null}
         <SectionHeader title="Audio quality" />
         <Card><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.qualityRow}>{audioPresets.map((item) => <Pressable key={item.id} onPress={() => setAudioQuality(item.id)} style={[styles.qualityOption, audioQuality === item.id && styles.qualitySelected]}><Text style={[styles.qualityTitle, audioQuality === item.id && { color: colors.accent }]}>{item.label}</Text><Text style={styles.qualityDetail}>{item.detail}</Text></Pressable>)}</ScrollView><Text style={styles.spec}>{preset?.sampleRate / 1000} kHz · {preset?.channels === 1 ? 'Mono' : 'Stereo'} · {Math.round((preset?.bitrate ?? 0) / 1000)} kbps</Text></Card>
@@ -141,14 +193,14 @@ export function AudioScreen({ mode, onModeChange, onOpenCapture }: { mode: Audio
       </>}
     </>}
 
-    {!activeAudio ? <><SectionHeader title="Intelligence" action="AI OPTIONAL" /><Card style={styles.intelligenceCard}><View style={styles.intelligenceHeader}><View style={styles.intelligenceIcon}><FuturisticIcon name="spark" size={23} color={colors.purple} accent={colors.accent} /></View><View style={{ flex: 1 }}><Text style={styles.cardTitle}>Works completely without AI</Text><Text style={styles.detail}>Recording, notes, markers, imports, search and exports remain available with intelligence off.</Text></View></View><View style={styles.chips}><Chip label="AI OFF" selected={intelligenceMode === 'off'} onPress={() => setIntelligenceMode('off')} /><Chip label="LOCAL TOOLS" selected={intelligenceMode === 'local'} onPress={() => setIntelligenceMode('local')} color={colors.accent} /><Chip label="PLUS · LATER" selected={false} onPress={() => setPlusMessage('Plus will unlock generative summaries, Ask SafeBro, speaker memory, translation, automatic chapters and advanced templates. Core recording stays free.')} color={colors.purple} /></View>{plusMessage ? <Text style={styles.plusMessage}>{plusMessage}</Text> : null}<View style={styles.tierGrid}><View style={styles.tier}><Label color={colors.accent}>FREE / LOCAL</Label><Text style={styles.tierText}>Audio · notes · imports · bookmarks · local transcript when available · exports · search</Text></View><View style={styles.tier}><Label color={colors.purple}>PLUS LATER</Label><Text style={styles.tierText}>AI summaries · Q&A · speaker memory · translation · auto chapters · generated documents</Text></View></View></Card></> : null}
+    {!activeAudio ? <><SectionHeader title="Intelligence" action="AI OPTIONAL" /><Card style={styles.intelligenceCard}><View style={styles.intelligenceHeader}><View style={styles.intelligenceIcon}><FuturisticIcon name="security" size={23} color={colors.purple} accent={colors.accent} animated /></View><View style={{ flex: 1 }}><Text style={styles.cardTitle}>Works completely without AI</Text><Text style={styles.detail}>Recording, notes, markers, imports, search and exports remain available with intelligence off.</Text></View></View><View style={styles.chips}><Chip label="AI OFF" selected={intelligenceMode === 'off'} onPress={() => setIntelligenceMode('off')} /><Chip label="LOCAL TOOLS" selected={intelligenceMode === 'local'} onPress={() => setIntelligenceMode('local')} color={colors.accent} /><Chip label="PLUS · LATER" selected={false} onPress={() => setPlusMessage('Plus will add Ask SafeBro, speaker memory, translation, automatic chapters and advanced templates. Core recording and local summaries stay free.')} color={colors.purple} /></View>{plusMessage ? <Text style={styles.plusMessage}>{plusMessage}</Text> : null}<View style={styles.tierGrid}><View style={styles.tier}><Label color={colors.accent}>FREE / LOCAL</Label><Text style={styles.tierText}>Audio · notes · local transcript when supported · summaries on eligible iOS 26 devices · offline recaps on older phones</Text></View><View style={styles.tier}><Label color={colors.purple}>PLUS LATER</Label><Text style={styles.tierText}>Q&A · speaker memory · translation · auto chapters · generated documents</Text></View></View></Card></> : null}
 
     <SectionHeader title="Voice trigger" action="FOREGROUND ONLY" />
-    <Card style={styles.optionsCard}><View style={commonStyles.spread}><Text style={styles.cardTitle}>Start with a phrase</Text><Badge color={voiceTriggerStatus === 'listening' ? colors.accent : voiceTriggerStatus === 'error' ? colors.red : colors.textMuted}>{voiceTriggerStatus === 'listening' ? 'ARMED' : voiceTriggerStatus === 'unavailable' ? 'BUILD' : voiceTriggerStatus.toUpperCase()}</Badge></View><Text style={styles.detail}>When armed, on-device listening starts the matching audio or camera mode once, then stops. It pauses when SafeBro leaves the foreground.</Text><Button label={voiceTriggerArmed ? 'DISARM VOICE TRIGGER' : 'ARM VOICE TRIGGER'} icon={voiceTriggerArmed ? '■' : '✦'} variant={voiceTriggerArmed ? 'danger' : 'primary'} disabled={!voiceTriggerArmed && voiceTriggerStatus === 'unavailable'} onPress={() => { void (voiceTriggerArmed ? disarmVoiceTrigger() : armVoiceTrigger()); }} />{voiceTriggerError ? <Text style={styles.error}>{voiceTriggerError}</Text> : <Text style={styles.footnote}>Requires Microphone and Speech Recognition permission in an iOS development build.</Text>}</Card>
+    <Card style={styles.optionsCard}><View style={commonStyles.spread}><Text style={styles.cardTitle}>Start with a phrase</Text><Badge color={voiceTriggerStatus === 'listening' ? colors.accent : voiceTriggerStatus === 'error' ? colors.red : colors.textMuted}>{voiceTriggerStatus === 'listening' ? 'ARMED' : voiceTriggerStatus === 'unavailable' ? 'BUILD' : voiceTriggerStatus.toUpperCase()}</Badge></View><Text style={styles.detail}>When armed, on-device listening starts the matching audio or camera mode once, then stops. It pauses when SafeBro leaves the foreground.</Text><Button label={voiceTriggerArmed ? 'DISARM VOICE TRIGGER' : 'ARM VOICE TRIGGER'} icon="voice-trigger" animatedIcon variant={voiceTriggerArmed ? 'danger' : 'primary'} disabled={!voiceTriggerArmed && voiceTriggerStatus === 'unavailable'} onPress={() => { void (voiceTriggerArmed ? disarmVoiceTrigger() : armVoiceTrigger()); }} />{voiceTriggerError ? <Text style={styles.error}>{voiceTriggerError}</Text> : <Text style={styles.footnote}>Requires Microphone and Speech Recognition permission in an iOS development build.</Text>}</Card>
 
     <SectionHeader title="Voice commands" action="SIRI / SHORTCUTS" />
-    <Card style={styles.optionsCard}><Text style={styles.cardTitle}>Choose your phrases</Text><Text style={styles.detail}>Each phrase can also name an iOS Shortcut that opens its mode’s SafeBro link. Siri handles the wake phrase; SafeBro cannot listen while other apps are in front.</Text>{quickCaptureModes.map((item) => <View key={item.id} style={styles.voiceRow}><View style={styles.voiceModeRow}><FuturisticIcon name={item.icon} size={18} color={colors.accent} accent={colors.purple} /><Text style={styles.voiceMode}>{item.label}</Text></View><TextInput value={voiceCommands[item.id]} onChangeText={(phrase) => setVoiceCommand(item.id, phrase)} placeholder="Shortcut phrase" placeholderTextColor={colors.textSubtle} autoCapitalize="sentences" style={styles.voiceInput} /><Text selectable style={styles.deepLink}>{`sentinel://quick-capture?mode=${item.id}`}</Text></View>)}</Card>
-  </ScrollView></View>;
+    <Card style={styles.optionsCard}><Text style={styles.cardTitle}>Choose your phrases</Text><Text style={styles.detail}>Each phrase can also name an iOS Shortcut that opens its mode’s SafeBro link. Siri handles the wake phrase; SafeBro cannot listen while other apps are in front.</Text>{quickCaptureModes.map((item) => <View key={item.id} style={styles.voiceRow}><View style={styles.voiceModeRow}><FuturisticIcon name={item.icon} size={18} color={colors.accent} accent={colors.purple} animated /><Text style={styles.voiceMode}>{item.label}</Text></View><TextInput value={voiceCommands[item.id]} onChangeText={(phrase) => setVoiceCommand(item.id, phrase)} placeholder="Shortcut phrase" placeholderTextColor={colors.textSubtle} autoCapitalize="sentences" style={styles.voiceInput} /><Text selectable style={styles.deepLink}>{`sentinel://quick-capture?mode=${item.id}`}</Text></View>)}</Card>
+  </ScrollView><PermissionComicPrompt device="microphone" visible={permissionPromptVisible} onContinue={continueMicrophonePermission} onCancel={cancelMicrophonePermission} /></View>;
 }
 
 const styles = StyleSheet.create({
@@ -160,8 +212,7 @@ const styles = StyleSheet.create({
   recordTitle: { ...typography.title, color: colors.text, marginTop: 6 },
   timer: { color: colors.text, fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
   timerCaption: { ...typography.label, color: colors.textSubtle, marginTop: 3 },
-  signalArea: { height: 58, justifyContent: 'center', position: 'relative', borderTopWidth: 1, borderBottomWidth: 1, borderColor: `${colors.accent}18`, marginHorizontal: -4 },
-  signalWave: { marginHorizontal: 4 },
+  signalArea: { minHeight: 367, justifyContent: 'center', position: 'relative', marginHorizontal: -4 },
   detail: { ...typography.caption, color: colors.textMuted, lineHeight: 18, flexShrink: 1 },
   error: { ...typography.caption, color: colors.red, lineHeight: 18 },
   otherSession: { gap: 13, marginBottom: spacing.xs },
@@ -185,8 +236,7 @@ const styles = StyleSheet.create({
   featureLine: { ...typography.caption, color: colors.accent, lineHeight: 18 },
   plusLine: { ...typography.caption, color: colors.purple, lineHeight: 18 },
   privacyNote: { ...typography.caption, color: colors.orange, lineHeight: 18 },
-  consentCard: { gap: 11, marginBottom: spacing.xs, borderColor: `${colors.orange}55` },
-  consentCardConfirmed: { borderColor: `${colors.accent}66`, backgroundColor: `${colors.accent}0A` },
+  permissionHint: { ...typography.caption, color: colors.textSubtle, lineHeight: 17, textAlign: 'center', marginTop: -5 },
   modeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.xs },
   modeCard: { flexBasis: '45%', flexGrow: 1, minWidth: 0, minHeight: 166, padding: 16, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border },
   modeCardSelected: { backgroundColor: colors.accentMuted, borderColor: colors.accent },

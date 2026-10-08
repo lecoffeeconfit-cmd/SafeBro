@@ -1253,6 +1253,8 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - SentinelMulticam (0.1.0):
+    - ExpoModulesCore
   - SocketRocket (0.7.0)
   - Yoga (0.0.0)
   - ZXingObjC/Core (3.6.9)
@@ -1339,6 +1341,7 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - RNScreens (from `../node_modules/react-native-screens`)
+  - SentinelMulticam (from `../modules/sentinel-multicam/ios`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
@@ -1498,6 +1501,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-async-storage/async-storage"
   RNScreens:
     :path: "../node_modules/react-native-screens"
+  SentinelMulticam:
+    :path: "../modules/sentinel-multicam/ios"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -1577,6 +1582,7 @@ SPEC CHECKSUMS:
   ReactCommon: 9f285823dbe955099978d9bff65a7653ca029256
   RNCAsyncStorage: aa75595c1aefa18f868452091fa0c411a516ce11
   RNScreens: a2d8a2555b4653d7a19706eb172f855657ac30d7
+  SentinelMulticam: dfc8776b1d164a99dd9d34ba9710cebd9a12e2af
   SocketRocket: abac6f5de4d4d62d24e11868d7a2f427e0ef940d
   Yoga: 950bbfd7e6f04790fdb51149ed51df41f329fcc8
   ZXingObjC: 8898711ab495761b2dbbdec76d90164a6d7e14c5

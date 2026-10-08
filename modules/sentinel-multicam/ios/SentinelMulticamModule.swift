@@ -2,7 +2,7 @@ import AVFoundation
 import ExpoModulesCore
 
 private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
-  private let session = AVCaptureMultiCamSession()
+  private var session = AVCaptureMultiCamSession()
   private let queue = DispatchQueue(label: "sentinel.multicam.capture", qos: .userInitiated)
   private let lock = NSLock()
   private var backOutput = AVCaptureVideoDataOutput()
@@ -11,6 +11,7 @@ private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOut
   private var backWriter: WriterState?
   private var frontWriter: WriterState?
   private var isRecording = false
+  private var microphoneEnabled = false
   private var frontURL: URL?
   private var rearURL: URL?
 
@@ -20,15 +21,33 @@ private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOut
       AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
   }
 
-  func start(sessionId: String, quality: String, fps: Int) throws -> [String: String] {
+  func start(sessionId: String, quality: String, fps: Int, microphone: Bool) throws -> [String: String] {
     guard isSupported() else { throw CaptureError.unsupported }
     guard !isRecording else { throw CaptureError.alreadyRecording }
+    guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { throw CaptureError.cameraPermissionDenied }
+    if microphone && AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+      throw CaptureError.microphonePermissionDenied
+    }
 
     let backDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)!
     let frontDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)!
-    let audioDevice = AVCaptureDevice.default(for: .audio)
     let backInput = try AVCaptureDeviceInput(device: backDevice)
     let frontInput = try AVCaptureDeviceInput(device: frontDevice)
+    let audioInput: AVCaptureDeviceInput?
+    if microphone {
+      guard let audioDevice = AVCaptureDevice.default(for: .audio) else { throw CaptureError.microphoneUnavailable }
+      audioInput = try AVCaptureDeviceInput(device: audioDevice)
+    } else {
+      audioInput = nil
+    }
+
+    // Rebuild the capture graph for every recording so a previous mic-on session
+    // cannot leave audio attached to a later mic-off session.
+    session = AVCaptureMultiCamSession()
+    backOutput = AVCaptureVideoDataOutput()
+    frontOutput = AVCaptureVideoDataOutput()
+    audioOutput = AVCaptureAudioDataOutput()
+    let captureSession = session
 
     let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("sentinel-sessions", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -37,45 +56,60 @@ private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOut
     if let rearURL { try? FileManager.default.removeItem(at: rearURL) }
     if let frontURL { try? FileManager.default.removeItem(at: frontURL) }
 
-    session.beginConfiguration()
+    captureSession.beginConfiguration()
+    var configurationCommitted = false
+    defer {
+      if !configurationCommitted { captureSession.commitConfiguration() }
+    }
     let requestedPreset = preset(for: quality)
-    session.sessionPreset = session.canSetSessionPreset(requestedPreset) ? requestedPreset : .high
-    if session.canAddInput(backInput) { session.addInputWithNoConnections(backInput) }
-    if session.canAddInput(frontInput) { session.addInputWithNoConnections(frontInput) }
-    if let audioDevice, let audioInput = try? AVCaptureDeviceInput(device: audioDevice), session.canAddInput(audioInput) { session.addInputWithNoConnections(audioInput) }
+    captureSession.sessionPreset = captureSession.canSetSessionPreset(requestedPreset) ? requestedPreset : .high
+    guard captureSession.canAddInput(backInput), captureSession.canAddInput(frontInput) else { throw CaptureError.captureSetupFailed }
+    captureSession.addInputWithNoConnections(backInput)
+    captureSession.addInputWithNoConnections(frontInput)
+    if let audioInput {
+      guard captureSession.canAddInput(audioInput) else { throw CaptureError.microphoneUnavailable }
+      captureSession.addInputWithNoConnections(audioInput)
+    }
 
     configureOutput(backOutput, pixelFormat: kCVPixelFormatType_32BGRA)
     configureOutput(frontOutput, pixelFormat: kCVPixelFormatType_32BGRA)
-    if session.canAddOutput(backOutput) { session.addOutputWithNoConnections(backOutput) }
-    if session.canAddOutput(frontOutput) { session.addOutputWithNoConnections(frontOutput) }
-    if session.canAddOutput(audioOutput) { session.addOutputWithNoConnections(audioOutput) }
+    guard captureSession.canAddOutput(backOutput), captureSession.canAddOutput(frontOutput) else { throw CaptureError.captureSetupFailed }
+    captureSession.addOutputWithNoConnections(backOutput)
+    captureSession.addOutputWithNoConnections(frontOutput)
+    if microphone {
+      guard captureSession.canAddOutput(audioOutput) else { throw CaptureError.microphoneUnavailable }
+      captureSession.addOutputWithNoConnections(audioOutput)
+    }
 
-    if let backPort = backInput.ports.first(where: { $0.mediaType == .video }) {
-      let connection = AVCaptureConnection(inputPorts: [backPort], output: backOutput)
-      if session.canAddConnection(connection) { session.addConnection(connection) }
-    }
-    if let frontPort = frontInput.ports.first(where: { $0.mediaType == .video }) {
-      let connection = AVCaptureConnection(inputPorts: [frontPort], output: frontOutput)
-      if session.canAddConnection(connection) { session.addConnection(connection) }
-    }
-    if let audioInput = session.inputs.compactMap({ $0 as? AVCaptureDeviceInput }).first(where: { $0.device.hasMediaType(.audio) }), let audioPort = audioInput.ports.first(where: { $0.mediaType == .audio }) {
+    guard let backPort = backInput.ports.first(where: { $0.mediaType == .video }),
+          let frontPort = frontInput.ports.first(where: { $0.mediaType == .video }) else { throw CaptureError.captureSetupFailed }
+    let backConnection = AVCaptureConnection(inputPorts: [backPort], output: backOutput)
+    let frontConnection = AVCaptureConnection(inputPorts: [frontPort], output: frontOutput)
+    guard captureSession.canAddConnection(backConnection), captureSession.canAddConnection(frontConnection) else { throw CaptureError.captureSetupFailed }
+    captureSession.addConnection(backConnection)
+    captureSession.addConnection(frontConnection)
+    if let audioInput {
+      guard let audioPort = audioInput.ports.first(where: { $0.mediaType == .audio }) else { throw CaptureError.microphoneUnavailable }
       let connection = AVCaptureConnection(inputPorts: [audioPort], output: audioOutput)
-      if session.canAddConnection(connection) { session.addConnection(connection) }
+      guard captureSession.canAddConnection(connection) else { throw CaptureError.microphoneUnavailable }
+      captureSession.addConnection(connection)
     }
-    session.commitConfiguration()
+    captureSession.commitConfiguration()
+    configurationCommitted = true
 
     configureFrameRate(backDevice, fps: fps)
     configureFrameRate(frontDevice, fps: fps)
     backOutput.setSampleBufferDelegate(self, queue: queue)
     frontOutput.setSampleBufferDelegate(self, queue: queue)
-    audioOutput.setSampleBufferDelegate(self, queue: queue)
+    if microphone { audioOutput.setSampleBufferDelegate(self, queue: queue) }
 
     lock.lock()
     backWriter = nil
     frontWriter = nil
+    microphoneEnabled = microphone
     isRecording = true
     lock.unlock()
-    queue.async { self.session.startRunning() }
+    queue.async { captureSession.startRunning() }
 
     return ["frontUri": frontURL?.path ?? "", "rearUri": rearURL?.path ?? ""]
   }
@@ -141,7 +175,7 @@ private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOut
   private func appendVideo(_ sampleBuffer: CMSampleBuffer, to writer: inout WriterState?, url: URL?, timestamp: CMTime) {
     if writer == nil, let url, let format = CMSampleBufferGetFormatDescription(sampleBuffer) {
       let dimensions = CMVideoFormatDescriptionGetDimensions(format)
-      writer = WriterState(url: url, width: Int(dimensions.width), height: Int(dimensions.height))
+      writer = WriterState(url: url, width: Int(dimensions.width), height: Int(dimensions.height), includesAudio: microphoneEnabled)
     }
     writer?.appendVideo(sampleBuffer, timestamp: timestamp)
   }
@@ -149,18 +183,25 @@ private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOut
   private final class WriterState {
     let writer: AVAssetWriter
     let videoInput: AVAssetWriterInput
-    let audioInput: AVAssetWriterInput
+    let audioInput: AVAssetWriterInput?
     var started = false
 
-    init?(url: URL, width: Int, height: Int) {
+    init?(url: URL, width: Int, height: Int, includesAudio: Bool) {
       guard let writer = try? AVAssetWriter(url: url, fileType: .mp4) else { return nil }
       self.writer = writer
       videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height])
-      audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVNumberOfChannelsKey: 1, AVSampleRateKey: 44100, AVEncoderBitRateKey: 128000])
       videoInput.expectsMediaDataInRealTime = true
-      audioInput.expectsMediaDataInRealTime = true
-      if writer.canAdd(videoInput) { writer.add(videoInput) }
-      if writer.canAdd(audioInput) { writer.add(audioInput) }
+      guard writer.canAdd(videoInput) else { return nil }
+      writer.add(videoInput)
+      if includesAudio {
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVNumberOfChannelsKey: 1, AVSampleRateKey: 44100, AVEncoderBitRateKey: 128000])
+        audioInput.expectsMediaDataInRealTime = true
+        guard writer.canAdd(audioInput) else { return nil }
+        writer.add(audioInput)
+        self.audioInput = audioInput
+      } else {
+        audioInput = nil
+      }
     }
 
     func appendVideo(_ sampleBuffer: CMSampleBuffer, timestamp: CMTime) {
@@ -169,19 +210,35 @@ private final class DualCameraCaptureController: NSObject, AVCaptureVideoDataOut
     }
 
     func appendAudio(_ sampleBuffer: CMSampleBuffer) {
-      guard started, audioInput.isReadyForMoreMediaData else { return }
+      guard started, let audioInput, audioInput.isReadyForMoreMediaData else { return }
       audioInput.append(sampleBuffer)
     }
 
     func finish(completion: @escaping () -> Void) {
       guard started else { completion(); return }
       videoInput.markAsFinished()
-      audioInput.markAsFinished()
+      audioInput?.markAsFinished()
       writer.finishWriting(completionHandler: completion)
     }
   }
 
-  enum CaptureError: Error { case unsupported, alreadyRecording, notRecording, finalizationTimedOut }
+  enum CaptureError: LocalizedError {
+    case unsupported, alreadyRecording, notRecording, finalizationTimedOut
+    case cameraPermissionDenied, microphonePermissionDenied, microphoneUnavailable, captureSetupFailed
+
+    var errorDescription: String? {
+      switch self {
+      case .unsupported: return "Simultaneous front and rear camera capture is not supported on this iPhone."
+      case .alreadyRecording: return "A dual-camera recording is already active."
+      case .notRecording: return "No dual-camera recording is active."
+      case .finalizationTimedOut: return "The dual-camera files did not finish saving in time."
+      case .cameraPermissionDenied: return "Allow SafeBro to use the camera in Settings, then try again."
+      case .microphonePermissionDenied: return "Allow SafeBro to use the microphone in Settings, or turn the microphone off and retry."
+      case .microphoneUnavailable: return "The microphone could not be added to the dual-camera recording."
+      case .captureSetupFailed: return "The dual-camera recording could not be configured on this device."
+      }
+    }
+  }
 }
 
 public class SentinelMulticamModule: Module {
@@ -194,8 +251,8 @@ public class SentinelMulticamModule: Module {
       self.controller.isSupported()
     }
 
-    AsyncFunction("startRecording") { (sessionId: String, quality: String, fps: Int) throws -> [String: String] in
-      try self.controller.start(sessionId: sessionId, quality: quality, fps: fps)
+    AsyncFunction("startRecording") { (sessionId: String, quality: String, fps: Int, microphone: Bool) throws -> [String: String] in
+      try self.controller.start(sessionId: sessionId, quality: quality, fps: fps, microphone: microphone)
     }
 
     AsyncFunction("stopRecording") { () async throws -> [String: String] in

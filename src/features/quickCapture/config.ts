@@ -9,16 +9,16 @@ export function isAudioQuickCaptureMode(mode: QuickCaptureMode): mode is Extract
 }
 
 export const quickCaptureModes: { id: QuickCaptureMode; label: string; detail: string; icon: string }[] = [
-  { id: 'audio', label: 'Microphone', detail: 'Audio-only capture', icon: '◉' },
-  { id: 'low_power_audio', label: 'Low-power audio', detail: 'Battery-conscious audio capture', icon: '◌' },
-  { id: 'rear_video', label: 'Rear camera', detail: 'Single-camera video', icon: '◈' },
-  { id: 'front_video', label: 'Front camera', detail: 'Self-facing video', icon: '◎' },
+  { id: 'audio', label: 'Microphone', detail: 'Audio-only capture', icon: 'microphone' },
+  { id: 'low_power_audio', label: 'Low-power audio', detail: 'Battery-conscious audio capture', icon: 'battery' },
+  { id: 'rear_video', label: 'Rear camera', detail: 'Single-camera video', icon: 'rear-camera' },
+  { id: 'front_video', label: 'Front camera', detail: 'Self-facing video', icon: 'front-camera' },
   { id: 'double_surveillance', label: 'Double surveillance', detail: 'Front + rear cameras', icon: '⇄' },
-  { id: 'podcast', label: 'Podcast', detail: 'Mic + camera layout', icon: '◒' },
-  { id: 'security', label: 'Security', detail: 'Single-camera event mode', icon: '⌂' },
-  { id: 'dashcam', label: 'Dashboard camera', detail: 'Rear lens facing forward', icon: '▣' },
-  { id: 'event_camera', label: 'Motion events', detail: 'Save movement-triggered clips', icon: '⌁' },
-  { id: 'conversation_audio', label: 'Conversation audio', detail: 'Save when speech begins', icon: '◌' },
+  { id: 'podcast', label: 'Podcast', detail: 'Mic + camera layout', icon: 'podcast' },
+  { id: 'security', label: 'Security', detail: 'Single-camera event mode', icon: 'security' },
+  { id: 'dashcam', label: 'Dashboard camera', detail: 'Rear lens facing forward', icon: 'dashcam' },
+  { id: 'event_camera', label: 'Motion events', detail: 'Save movement-triggered clips', icon: 'motion' },
+  { id: 'conversation_audio', label: 'Conversation audio', detail: 'Save when speech begins', icon: 'conversation' },
 ];
 
 export const quickCaptureTriggers: { id: QuickCaptureTrigger; label: string; detail: string }[] = [

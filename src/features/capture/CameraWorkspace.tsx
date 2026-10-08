@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 
 import { Badge, Button, Chip, IconButton, Label } from '../../components/UI';
 import { FuturisticIcon } from '../../components/FuturisticIcon';
+import { PermissionComicPrompt } from '../../components/PermissionComicPrompt';
 import { CapabilitySnapshot, CaptureMode } from '../../types/models';
 import { colors, commonStyles, radii, spacing, typography } from '../../theme';
 import { useApp } from '../../context/AppContext';
@@ -36,6 +37,8 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
   const [cameraReady, setCameraReady] = useState(false);
   const [pendingStart, setPendingStart] = useState(false);
+  const [permissionPrompt, setPermissionPrompt] = useState<'camera' | 'microphone' | null>(null);
+  const permissionRequestInFlight = React.useRef(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const cameraRef = React.useRef<CameraView>(null);
   const recordingRef = React.useRef(false);
@@ -90,6 +93,35 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
     setActiveCamera(lens);
   };
 
+  const showPermissionSettings = (device: 'camera' | 'microphone') => {
+    Alert.alert(`${device === 'camera' ? 'Camera' : 'Microphone'} access needed`, `Allow SafeBro to use your ${device} in your device’s Settings, then try again.`, [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+    ]);
+  };
+
+  const requestCameraAccess = async () => {
+    const result = await requestPermission();
+    if (!result.granted) {
+      setCaptureError('Camera access is needed to record.');
+      if (!result.canAskAgain) showPermissionSettings('camera');
+      return false;
+    }
+    setCaptureError(null);
+    return true;
+  };
+
+  const requestVideoMicrophoneAccess = async () => {
+    const result = await requestMicrophonePermission();
+    if (!result.granted) {
+      setCaptureError('Microphone access is needed for video with sound. Turn the mic off in Custom Mode to record silent video.');
+      if (!result.canAskAgain) showPermissionSettings('microphone');
+      return false;
+    }
+    setCaptureError(null);
+    return true;
+  };
+
   React.useEffect(() => {
     if (recording) return;
     setActiveCamera(defaultLens);
@@ -104,15 +136,15 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
   const beginRecording = async () => {
     if (recordingRef.current) return;
     if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) { setCaptureError('Camera permission is needed to record.'); return; }
       setPendingStart(true);
+      setPermissionPrompt('camera');
       return;
     }
     if (!useNativeDual && !cameraReady) { setPendingStart(true); return; }
     if (microphone && !microphonePermission?.granted) {
-      const result = await requestMicrophonePermission();
-      if (!result.granted) { setCaptureError('Microphone permission is needed for video with sound. Turn the mic off in Custom Mode to record silent video.'); return; }
+      setPendingStart(true);
+      setPermissionPrompt('microphone');
+      return;
     }
     if (useNativeDual && !isDualView) return;
     setCaptureError(null);
@@ -124,7 +156,7 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
       setRecording(true);
       void startTripLocation();
       if (useNativeDual) {
-        nativeMediaRef.current = await multicam.startRecording(sessionId, quality, Number(fps));
+        nativeMediaRef.current = await multicam.startRecording(sessionId, quality, Number(fps), microphone);
       } else {
         const segmented = (isDrive || isRoom || loopRecording) && (Boolean(useCase && ['drive', 'room', 'park', 'continuous', 'low_power', 'smart_sentry'].includes(useCase.id)) || mode === 'security' || mode === 'dashcam' || mode === 'event_camera');
         while (recordingRef.current) {
@@ -154,7 +186,29 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
     if (!pendingStart || !permission?.granted || (!useNativeDual && !cameraReady)) return;
     setPendingStart(false);
     void beginRecording();
-  }, [pendingStart, permission?.granted, cameraReady, useNativeDual]);
+  }, [pendingStart, permission?.granted, microphonePermission?.granted, cameraReady, useNativeDual]);
+
+  const continuePermissionRequest = async () => {
+    if (permissionRequestInFlight.current) return;
+    const device = permissionPrompt;
+    setPermissionPrompt(null);
+    if (!device) return;
+    permissionRequestInFlight.current = true;
+    try {
+      const granted = device === 'camera' ? await requestCameraAccess() : await requestVideoMicrophoneAccess();
+      if (!granted) setPendingStart(false);
+    } catch {
+      setCaptureError(`Could not request ${device} access. Check your device’s Settings and try again.`);
+      setPendingStart(false);
+    } finally {
+      permissionRequestInFlight.current = false;
+    }
+  };
+
+  const cancelPermissionRequest = () => {
+    setPermissionPrompt(null);
+    setPendingStart(false);
+  };
 
   const endRecording = async () => {
     recordingRef.current = false;
@@ -213,9 +267,9 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
       {permission?.granted && !useNativeDual ? <CameraView key={activeCamera} ref={cameraRef} style={styles.cameraView} facing={activeCamera === 'rear' ? 'back' : 'front'} mode="video" videoQuality={quality} videoStabilizationMode={useCase?.id === 'bike' || useCase?.id === 'sports' ? 'cinematic' : 'auto'} mute={!microphone} enableTorch={torch} zoom={zoom} onCameraReady={() => setCameraReady(true)} /> : null}
       <View style={[styles.feed, permission?.granted && !useNativeDual && styles.feedBehindCamera, (isDualView || dualRequested) && styles.feedRear, layout === 'front_dominant' && styles.feedSmall]}><FuturisticIcon name={permission?.granted && !useNativeDual ? 'capture' : 'signal'} size={34} color="#8DB7D8" accent={colors.accent} style={styles.feedIcon} /><Text style={styles.feedName}>{permission?.granted && !useNativeDual ? `${activeCamera.toUpperCase()} CAMERA` : useNativeDual && isDualView ? 'FRONT + REAR CAMERA' : 'CAMERA PREVIEW'}</Text><Text style={styles.feedState}>{permission?.granted && !useNativeDual ? 'LIVE' : useNativeDual && isDualView ? 'NATIVE MULTICAM READY' : 'READY TO ENABLE'}</Text></View>
       {useNativeDual && isDualView ? <View style={[styles.feed, styles.feedFront, layout === 'split' && styles.feedSplit, layout === 'front_dominant' && styles.feedFrontDominant, layout === 'rear_dominant' && styles.feedHidden]}><FuturisticIcon name="lens" size={34} color="#8DB7D8" accent={colors.accent} style={styles.feedIcon} /><Text style={styles.feedName}>FRONT CAMERA</Text><Text style={styles.feedState}>LIVE</Text></View> : null}
-      <View style={styles.previewOverlay}><Text style={styles.previewOverlayText}>LIVE PREVIEW</Text><Text style={styles.previewOverlaySub}>Camera permission is requested only when capture starts</Text></View>
+      <View style={styles.previewOverlay}><Text style={styles.previewOverlayText}>LIVE PREVIEW</Text><Text style={styles.previewOverlaySub}>Tap below to allow camera access</Text></View>
       {!isDualView && dualRequested ? <View style={styles.unsupportedOverlay}><Text style={styles.unsupportedTitle}>{mode === 'double_surveillance' ? 'DOUBLE SURVEILLANCE UNAVAILABLE' : 'DUAL CAMERA NOT SUPPORTED'}</Text><Text style={styles.unsupportedDetail}>This device does not expose simultaneous front + rear capture. No feed is simulated.</Text></View> : null}
-      {!permission?.granted && !useNativeDual ? <Pressable onPress={requestPermission} style={styles.enableButton}><Text style={styles.enableButtonText}>ENABLE CAMERA PREVIEW</Text></Pressable> : null}
+      {!permission?.granted && !useNativeDual ? <Pressable onPress={() => setPermissionPrompt('camera')} style={styles.enableButton}><Text style={styles.enableButtonText}>ALLOW CAMERA ACCESS</Text></Pressable> : null}
     </View>
     {captureError ? <Text style={styles.captureError}>{captureError}</Text> : null}
 
@@ -246,6 +300,7 @@ export function CameraWorkspace({ mode, capabilities, quickStartToken = 0, onQui
       <Text style={styles.securityFootnote}>Recording is split into consecutive files while SafeBro is open. Automatic motion and sound triggers, pre-event buffers and in-session overwrite still need the native event recorder. Mark and Lock Event work now. iOS pauses the camera when the app is backgrounded.</Text>
     </View> : null}
     {!dualRequested && !isDrive && !isRoom ? <Pressable style={styles.switchBanner} onPress={() => changeCamera(activeCamera === 'rear' ? 'front' : 'rear')}><FuturisticIcon name="dual" size={24} color={colors.blue} accent={colors.accent} /><View style={{ flex: 1 }}><Text style={styles.switchTitle}>SWITCH FRONT / REAR CAMERA</Text><Text style={styles.switchDetail}>The active feed changes without pretending both cameras are recording.</Text></View><FuturisticIcon name="arrow" size={20} color={colors.textMuted} accent={colors.accent} /></Pressable> : null}
+    <PermissionComicPrompt device={permissionPrompt} visible={permissionPrompt !== null} onContinue={continuePermissionRequest} onCancel={cancelPermissionRequest} />
   </View>;
 }
 

@@ -53,10 +53,6 @@ interface AppContextValue {
   setIntelligenceMode: (mode: IntelligenceMode) => void;
   audioEnhancements: AudioEnhancementSettings;
   setAudioEnhancements: (patch: Partial<AudioEnhancementSettings>) => void;
-  recordingConsentConfirmed: boolean;
-  setRecordingConsentConfirmed: (confirmed: boolean) => void;
-  audibleConsentAnnouncement: boolean;
-  setAudibleConsentAnnouncement: (enabled: boolean) => void;
   quickCaptureMode: QuickCaptureMode;
   setQuickCaptureMode: (mode: QuickCaptureMode) => void;
   quickCaptureRequest: { mode: QuickCaptureMode; token: number } | null;
@@ -105,8 +101,6 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [conversationTemplateId, setConversationTemplateIdState] = useState<ConversationTemplateId>('general');
   const [intelligenceMode, setIntelligenceModeState] = useState<IntelligenceMode>('local');
   const [audioEnhancements, setAudioEnhancementsState] = useState<AudioEnhancementSettings>(defaultAudioEnhancements);
-  const [recordingConsentConfirmed, setRecordingConsentConfirmedState] = useState(false);
-  const [audibleConsentAnnouncement, setAudibleConsentAnnouncementState] = useState(false);
   const [quickCaptureMode, setQuickCaptureModeState] = useState<QuickCaptureMode>('audio');
   const [quickCaptureRequest, setQuickCaptureRequest] = useState<{ mode: QuickCaptureMode; token: number } | null>(null);
   const [voiceCommands, setVoiceCommands] = useState<VoiceCommandMap>(defaultVoiceCommands);
@@ -155,15 +149,11 @@ export function AppProvider({ children }: PropsWithChildren) {
       getJson<ConversationTemplateId>('conversation_template', 'general'),
       getJson<IntelligenceMode>('intelligence_mode', 'local'),
       getJson<Partial<AudioEnhancementSettings>>('audio_enhancements', {}),
-      getJson<boolean>('recording_consent_confirmed', false),
-      getJson<boolean>('audible_consent_announcement', false),
-    ]).then(([template, intelligence, enhancements, consent, announcement]) => {
+    ]).then(([template, intelligence, enhancements]) => {
       if (!mounted) return;
       setConversationTemplateIdState(template);
       setIntelligenceModeState(intelligence === 'plus' ? 'local' : intelligence);
       setAudioEnhancementsState({ ...defaultAudioEnhancements, ...enhancements });
-      setRecordingConsentConfirmedState(consent);
-      setAudibleConsentAnnouncementState(announcement);
     });
     return () => { mounted = false; };
   }, []);
@@ -264,16 +254,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       void setJson('audio_enhancements', next);
       return next;
     });
-  }, []);
-
-  const setRecordingConsentConfirmed = useCallback((confirmed: boolean) => {
-    setRecordingConsentConfirmedState(confirmed);
-    void setJson('recording_consent_confirmed', confirmed);
-  }, []);
-
-  const setAudibleConsentAnnouncement = useCallback((enabled: boolean) => {
-    setAudibleConsentAnnouncementState(enabled);
-    void setJson('audible_consent_announcement', enabled);
   }, []);
 
   const setVoiceCommand = useCallback((mode: QuickCaptureMode, phrase: string) => {
@@ -403,8 +383,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       conversationTemplateId: isAudio ? conversationTemplateId : undefined,
       intelligenceMode,
       audioEnhancements: isAudio ? audioEnhancements : undefined,
-      consentConfirmed: isAudio ? recordingConsentConfirmed : undefined,
-      audibleConsentAnnouncement: isAudio ? audibleConsentAnnouncement : undefined,
       notes: [],
       attachments: [],
       pausedDurationMs: 0,
@@ -423,7 +401,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     } finally {
       startingRef.current = false;
     }
-  }, [audioCapturePolicy, audioEnhancements, audioQuality, audibleConsentAnnouncement, cameraOptions, capabilities?.dualCameraSupported, capturePolicy, conversationTemplateId, drivePreferences, roomPreferences, intelligenceMode, powerMode, recorder, recordingConsentConfirmed, selectedMode, selectedUseCaseModeId]);
+  }, [audioCapturePolicy, audioEnhancements, audioQuality, cameraOptions, capabilities?.dualCameraSupported, capturePolicy, conversationTemplateId, drivePreferences, roomPreferences, intelligenceMode, powerMode, recorder, selectedMode, selectedUseCaseModeId]);
 
   const stopCapture = useCallback(async (media?: CaptureMedia) => {
     const session = activeSessionRef.current;
@@ -591,7 +569,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     void setJson('sessions', next);
   }, [sessions]);
 
-  const value = useMemo(() => ({ sessions, activeSession, capabilities, isReady, selectedMode, setSelectedMode, selectedUseCaseModeId, selectUseCaseMode, cameraOptions, setCameraOptions, drivePreferences, setDrivePreferences, roomPreferences, setRoomPreferences, customCaptureConfig, setCustomCaptureConfig, audioQuality, setAudioQuality, powerMode, setPowerMode, capturePolicy, setCapturePolicy, audioCapturePolicy, setAudioCapturePolicy, conversationTemplateId, setConversationTemplateId, intelligenceMode, setIntelligenceMode, audioEnhancements, setAudioEnhancements, recordingConsentConfirmed, setRecordingConsentConfirmed, audibleConsentAnnouncement, setAudibleConsentAnnouncement, quickCaptureMode, setQuickCaptureMode, quickCaptureRequest, requestQuickCapture, clearQuickCaptureRequest, voiceCommands, setVoiceCommand, voiceTriggerArmed, voiceTriggerStatus, voiceTriggerError, armVoiceTrigger, disarmVoiceTrigger, startCapture, stopCapture, pauseCapture, resumeCapture, addMarker, addSessionNote, addSessionAttachment, importMediaSession, updateSession, addLocationSample, lockActiveSession, toggleProtected, refreshCapabilities }), [sessions, activeSession, capabilities, isReady, selectedMode, setSelectedMode, selectedUseCaseModeId, selectUseCaseMode, cameraOptions, setCameraOptions, drivePreferences, setDrivePreferences, roomPreferences, setRoomPreferences, customCaptureConfig, setCustomCaptureConfig, audioQuality, powerMode, capturePolicy, setCapturePolicy, audioCapturePolicy, setAudioCapturePolicy, conversationTemplateId, setConversationTemplateId, intelligenceMode, setIntelligenceMode, audioEnhancements, setAudioEnhancements, recordingConsentConfirmed, setRecordingConsentConfirmed, audibleConsentAnnouncement, setAudibleConsentAnnouncement, quickCaptureMode, setQuickCaptureMode, quickCaptureRequest, requestQuickCapture, clearQuickCaptureRequest, voiceCommands, setVoiceCommand, voiceTriggerArmed, voiceTriggerStatus, voiceTriggerError, armVoiceTrigger, disarmVoiceTrigger, startCapture, stopCapture, pauseCapture, resumeCapture, addMarker, addSessionNote, addSessionAttachment, importMediaSession, updateSession, addLocationSample, lockActiveSession, toggleProtected, refreshCapabilities]);
+  const value = useMemo(() => ({ sessions, activeSession, capabilities, isReady, selectedMode, setSelectedMode, selectedUseCaseModeId, selectUseCaseMode, cameraOptions, setCameraOptions, drivePreferences, setDrivePreferences, roomPreferences, setRoomPreferences, customCaptureConfig, setCustomCaptureConfig, audioQuality, setAudioQuality, powerMode, setPowerMode, capturePolicy, setCapturePolicy, audioCapturePolicy, setAudioCapturePolicy, conversationTemplateId, setConversationTemplateId, intelligenceMode, setIntelligenceMode, audioEnhancements, setAudioEnhancements, quickCaptureMode, setQuickCaptureMode, quickCaptureRequest, requestQuickCapture, clearQuickCaptureRequest, voiceCommands, setVoiceCommand, voiceTriggerArmed, voiceTriggerStatus, voiceTriggerError, armVoiceTrigger, disarmVoiceTrigger, startCapture, stopCapture, pauseCapture, resumeCapture, addMarker, addSessionNote, addSessionAttachment, importMediaSession, updateSession, addLocationSample, lockActiveSession, toggleProtected, refreshCapabilities }), [sessions, activeSession, capabilities, isReady, selectedMode, setSelectedMode, selectedUseCaseModeId, selectUseCaseMode, cameraOptions, setCameraOptions, drivePreferences, setDrivePreferences, roomPreferences, setRoomPreferences, customCaptureConfig, setCustomCaptureConfig, audioQuality, powerMode, capturePolicy, setCapturePolicy, audioCapturePolicy, setAudioCapturePolicy, conversationTemplateId, setConversationTemplateId, intelligenceMode, setIntelligenceMode, audioEnhancements, setAudioEnhancements, quickCaptureMode, setQuickCaptureMode, quickCaptureRequest, requestQuickCapture, clearQuickCaptureRequest, voiceCommands, setVoiceCommand, voiceTriggerArmed, voiceTriggerStatus, voiceTriggerError, armVoiceTrigger, disarmVoiceTrigger, startCapture, stopCapture, pauseCapture, resumeCapture, addMarker, addSessionNote, addSessionAttachment, importMediaSession, updateSession, addLocationSample, lockActiveSession, toggleProtected, refreshCapabilities]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

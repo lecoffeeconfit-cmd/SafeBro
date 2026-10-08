@@ -28,12 +28,12 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>sentinel</string>
-          <string>com.sentinel.mobile</string>
+          <string>com.lecoffeeconfit.safebro</string>
         </array>
       </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>3</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSAppTransportSecurity</key>
@@ -52,7 +52,7 @@
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>SafeBro uses location during a trip you record to show speed and store route points locally.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>SafeBro uses the microphone to record audio you start.</string>
+    <string>SafeBro uses the microphone for audio and video recordings you start, and for Voice Trigger while armed.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>SafeBro lets you attach selected photos to recordings you create.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

@@ -53,6 +53,8 @@ export interface SessionChapter {
 
 export interface SessionSummary {
   quick?: string;
+  source?: 'device' | 'local' | 'cloud';
+  partial?: boolean;
   detailed?: string;
   keyPoints?: string[];
   decisions?: string[];

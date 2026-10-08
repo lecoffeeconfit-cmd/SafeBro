@@ -15,7 +15,7 @@ const actions = [
   { icon: '⌁', title: 'Create Highlights', detail: 'Local signal-based picks' },
 ];
 
-export function StudioScreen() {
+export function StudioScreen({ onOpenAnalyze }: { onOpenAnalyze?: () => void }) {
   const { sessions } = useApp();
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [surveillanceEditorOpen, setSurveillanceEditorOpen] = useState(false);
@@ -24,6 +24,7 @@ export function StudioScreen() {
   return <View style={commonStyles.screen}><ScrollView contentContainerStyle={commonStyles.content} showsVerticalScrollIndicator={false}>
     <ScreenHeader eyebrow="STUDIO / NONDESTRUCTIVE" title="Make it shareable." detail="A quick path from long recording to a polished social cut. Originals stay untouched." action={<Badge color={colors.purple}>DRAFTS 0</Badge>} />
     <Card style={styles.createCard}><View style={{ flex: 1 }}><Text style={styles.createEyebrow}>QUICK CREATE</Text><Text style={styles.createTitle}>What do you want to create?</Text><Text style={styles.createDetail}>Choose a goal and SafeBro will build an editable draft.</Text></View><Button label="CREATE" icon="✦" onPress={() => setQuickCreateOpen(true)} /></Card>
+    {onOpenAnalyze ? <Card style={styles.analyzeCard}><View style={styles.analyzeIcon}><FuturisticIcon name="analyze" size={25} color={colors.aqua} accent={colors.purple} animated /></View><View style={styles.analyzeCopy}><Text style={styles.analyzeTitle}>Recording analysis</Text><Text style={styles.analyzeDetail}>Open local signals, patterns, and recording insights.</Text></View><Button label="ANALYZE" icon="analyze" compact variant="secondary" onPress={onOpenAnalyze} /></Card> : null}
     <SectionHeader title="Start with" />
     <View style={styles.actionGrid}>{actions.map((action) => <Card key={action.title} style={styles.actionCard}><FuturisticIcon name={action.icon} size={42} framed color={colors.purple} accent={colors.aqua} /><Text style={styles.actionTitle}>{action.title}</Text><Text style={styles.actionDetail}>{action.detail}</Text></Card>)}</View>
     <SectionHeader title="Format" action="Presets" />
@@ -72,6 +73,11 @@ const styles = StyleSheet.create({
   createEyebrow: { ...typography.label, color: colors.accent },
   createTitle: { ...typography.title, color: colors.text, marginTop: 8 },
   createDetail: { ...typography.body, color: colors.textMuted, marginTop: 5 },
+  analyzeCard: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginTop: spacing.sm, backgroundColor: `${colors.aqua}0D`, borderColor: `${colors.aqua}55` },
+  analyzeIcon: { width: 44, height: 44, flexShrink: 0, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: `${colors.aqua}20`, borderWidth: 1, borderColor: `${colors.aqua}66` },
+  analyzeCopy: { flex: 1, minWidth: 145 },
+  analyzeTitle: { ...typography.bodyMedium, color: colors.text },
+  analyzeDetail: { ...typography.caption, color: colors.textMuted, marginTop: 3, lineHeight: 16 },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.xs },
   actionCard: { flexBasis: '45%', flexGrow: 1, minHeight: 160, padding: 16 },
   actionTitle: { ...typography.bodyMedium, color: colors.text, marginTop: 12 },

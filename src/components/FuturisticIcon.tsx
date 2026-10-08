@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Animated, Easing, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 
 import { colors } from '../theme';
 import { useReducedMotion } from './Motion';
@@ -29,11 +29,37 @@ const iconAliases: Record<string, string> = {
   '≡': 'document', '▶': 'play', 'Ⅱ': 'pause', '■': 'stop', '🔒': 'lock', '☆': 'bookmark', '✓': 'check', '□': 'check', '⌖': 'target',
 };
 
+const iconTypes = new Set([
+  'camera', 'capture', 'lens', 'record', 'rear-camera', 'front-camera', 'switch-camera',
+  'microphone', 'voice-trigger', 'low-power-audio', 'audio-guard', 'audio', 'conversation',
+  'meeting', 'interview', 'lecture', 'doctor-notes', 'reflection', 'business-call',
+  'sales-call', 'idea', 'journal', 'conference', 'planning', 'battery', 'room',
+  'import', 'export', 'save', 'library', 'grid', 'document', 'data', 'image', 'edit',
+  'check', 'people', 'analyze', 'signal', 'studio', 'spark', 'settings', 'dual',
+  'security', 'monitor', 'podcast', 'vehicle', 'timer', 'motion', 'search', 'target',
+  'lock', 'bookmark', 'bolt', 'plus', 'play', 'pause', 'stop', 'arrow', 'balance',
+]);
+
 function resolveIcon(name: string) {
   const normalized = name.trim().toLowerCase();
   if (iconAliases[name]) return iconAliases[name];
+  if (iconTypes.has(normalized)) return normalized;
+  if (normalized.includes('front-camera') || normalized.includes('selfie')) return 'front-camera';
+  if (normalized.includes('rear-camera')) return 'rear-camera';
+  if (normalized.includes('switch-camera') || normalized.includes('flip-camera')) return 'switch-camera';
+  if (normalized.includes('microphone') || normalized === 'mic') return 'microphone';
+  if (normalized.includes('conversation') || normalized.includes('chat')) return 'conversation';
+  if (normalized.includes('battery') || normalized.includes('low-power')) return 'battery';
+  if (normalized.includes('room') || normalized.includes('home')) return 'room';
+  if (normalized.includes('dashcam')) return 'vehicle';
+  if (normalized.includes('export') || normalized.includes('share')) return 'export';
+  if (normalized.includes('import') || normalized.includes('download')) return 'import';
+  if (normalized.includes('save')) return 'save';
+  if (normalized.includes('transcript') || normalized.includes('caption')) return 'document';
+  if (normalized.includes('photo')) return 'image';
+  if (normalized.includes('split') || normalized.includes('trim') || normalized.includes('blur')) return 'edit';
   if (normalized.includes('capture') || normalized.includes('camera') || normalized.includes('record')) return 'capture';
-  if (normalized.includes('audio') || normalized.includes('microphone') || normalized.includes('voice')) return 'audio';
+  if (normalized.includes('audio') || normalized.includes('voice')) return 'audio';
   if (normalized.includes('library') || normalized.includes('archive') || normalized.includes('folder')) return 'library';
   if (normalized.includes('people') || normalized.includes('person') || normalized.includes('speaker')) return 'people';
   if (normalized.includes('analy') || normalized.includes('signal') || normalized.includes('wave')) return 'analyze';
@@ -74,7 +100,8 @@ function Line({ width, color, rotate = 0, top, left, opacity = 1 }: { width: num
 }
 
 export function FuturisticIcon({ name, size = 24, color = colors.accent, accent = colors.purple, framed = false, animated, style }: Props) {
-  const type = resolveIcon(name);
+  const emoji = name.startsWith('emoji:') ? name.slice('emoji:'.length) : null;
+  const type = emoji ? 'emoji' : resolveIcon(name);
   const reducedMotion = useReducedMotion();
   const motion = useRef(new Animated.Value(0)).current;
   const shimmer = useRef(new Animated.Value(0)).current;
@@ -108,14 +135,26 @@ export function FuturisticIcon({ name, size = 24, color = colors.accent, accent 
     return () => { motionLoop.stop(); shimmerLoop.stop(); };
   }, [motion, phase, reducedMotion, shouldAnimate, shimmer]);
 
-  const glyphScale = motion.interpolate({ inputRange: [0, 1], outputRange: [framed ? 0.82 : 1.04, framed ? 0.88 : 1.09] });
-  const glyphLift = motion.interpolate({ inputRange: [0, 1], outputRange: [0, -Math.max(1, size * 0.045)] });
-  const glyphTilt = motion.interpolate({ inputRange: [0, 1], outputRange: ['-1deg', '2deg'] });
+  const glyphScale = motion.interpolate({ inputRange: [0, 1], outputRange: [framed ? 0.82 : 1, framed ? 0.9 : 1.09] });
+  const glyphLift = motion.interpolate({ inputRange: [0, 1], outputRange: [0, type === 'record' ? 0 : -Math.max(1, size * 0.045)] });
+  const glyphTilt = motion.interpolate({ inputRange: [0, 1], outputRange: type === 'microphone' || type === 'voice-trigger' || type === 'podcast' ? ['-4deg', '4deg'] : type === 'record' ? ['0deg', '0deg'] : ['-2deg', '2deg'] });
   const glintOpacity = shimmer.interpolate({ inputRange: [0, 0.45, 1], outputRange: [0.25, 0.82, 0.2] });
   const glintX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-size * 0.12, size * 0.34] });
+  const pulseScale = motion.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1.13] });
+  const soundOpacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
 
   let glyph: React.ReactNode;
   switch (type) {
+    case 'emoji':
+      glyph = <Text allowFontScaling={false} style={[styles.emojiGlyph, { width: size, height: size, fontSize: size * 0.61, lineHeight: size * 0.9 }]}>{emoji}</Text>;
+      break;
+    case 'record':
+      glyph = <>
+        <Ring size={size * 0.78} color={color} width={stroke} style={{ left: size * 0.11, top: size * 0.11 }} />
+        <Animated.View style={[styles.recordDot, { width: size * 0.42, height: size * 0.42, borderRadius: size * 0.21, left: size * 0.29, top: size * 0.29, backgroundColor: accent, transform: [{ scale: pulseScale }] }]} />
+        <Dot size={size * 0.1} color={colors.white} style={{ left: size * 0.36, top: size * 0.35 }} />
+      </>;
+      break;
     case 'camera':
     case 'capture':
     case 'lens':
@@ -127,11 +166,225 @@ export function FuturisticIcon({ name, size = 24, color = colors.accent, accent 
         <Line width={size * 0.18} color={accent} rotate={-45} top={size * 0.1} left={size * 0.68} />
       </>;
       break;
+    case 'rear-camera':
+      glyph = <>
+        <View style={[styles.cameraBody, { width: size * 0.75, height: size * 0.54, left: size * 0.08, top: size * 0.27, borderColor: color, borderWidth: stroke, backgroundColor: `${color}42` }]} />
+        <View style={[styles.cameraTop, { width: size * 0.29, height: size * 0.14, left: size * 0.18, top: size * 0.17, borderColor: color, borderWidth: stroke, backgroundColor: `${color}42` }]} />
+        <Ring size={size * 0.32} color={accent} width={stroke} style={{ left: size * 0.3, top: size * 0.38 }} />
+        <Dot size={size * 0.09} color={accent} style={{ left: size * 0.68, top: size * 0.36 }} />
+        <Line width={size * 0.2} color={accent} top={size * 0.54} left={size * 0.76} />
+      </>;
+      break;
+    case 'front-camera':
+      glyph = <>
+        <View style={[styles.phone, { width: size * 0.58, height: size * 0.82, left: size * 0.21, top: size * 0.08, borderColor: color, borderWidth: stroke, backgroundColor: `${color}30` }]} />
+        <Dot size={size * 0.2} color={accent} style={{ left: size * 0.4, top: size * 0.25 }} />
+        <View style={[styles.shoulder, { width: size * 0.38, height: size * 0.2, left: size * 0.31, top: size * 0.5, borderColor: accent, backgroundColor: `${accent}80`, borderWidth: stroke, borderRadius: size * 0.2 }]} />
+        <Dot size={size * 0.06} color={colors.white} style={{ left: size * 0.47, top: size * 0.14 }} />
+      </>;
+      break;
+    case 'switch-camera':
+      glyph = <>
+        <Ring size={size * 0.43} color={color} width={stroke} style={{ left: size * 0.28, top: size * 0.28 }} />
+        <Line width={size * 0.43} color={accent} top={size * 0.18} left={size * 0.16} />
+        <Line width={size * 0.18} color={accent} rotate={42} top={size * 0.13} left={size * 0.49} />
+        <Line width={size * 0.43} color={color} top={size * 0.75} left={size * 0.41} />
+        <Line width={size * 0.18} color={color} rotate={42} top={size * 0.68} left={size * 0.32} />
+      </>;
+      break;
+    case 'microphone':
+      glyph = <>
+        <View style={[styles.microphone, { width: size * 0.34, height: size * 0.58, left: size * 0.33, top: size * 0.08, borderColor: color, borderWidth: stroke, backgroundColor: `${accent}75` }]} />
+        <View style={[styles.micCradle, { width: size * 0.62, height: size * 0.48, left: size * 0.19, top: size * 0.3, borderColor: accent, borderWidth: stroke }]} />
+        <Line width={size * 0.3} color={color} rotate={90} top={size * 0.7} left={size * 0.35} />
+        <Line width={size * 0.46} color={color} top={size * 0.83} left={size * 0.27} />
+      </>;
+      break;
+    case 'voice-trigger':
+      glyph = <>
+        <View style={[styles.microphone, { width: size * 0.3, height: size * 0.48, left: size * 0.35, top: size * 0.18, borderColor: color, borderWidth: stroke, backgroundColor: `${accent}75` }]} />
+        <View style={[styles.micCradle, { width: size * 0.5, height: size * 0.37, left: size * 0.25, top: size * 0.37, borderColor: color, borderWidth: stroke }]} />
+        <Line width={size * 0.37} color={color} top={size * 0.82} left={size * 0.32} />
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: soundOpacity }]}>
+          <Bar width={size * 0.08} height={size * 0.23} color={accent} style={{ left: size * 0.09, top: size * 0.35 }} />
+          <Bar width={size * 0.08} height={size * 0.38} color={accent} style={{ left: size * 0.83, top: size * 0.27 }} />
+        </Animated.View>
+      </>;
+      break;
+    case 'low-power-audio':
+      glyph = <>
+        <View style={[styles.battery, { width: size * 0.76, height: size * 0.54, left: size * 0.07, top: size * 0.24, borderColor: color, borderWidth: stroke, backgroundColor: `${color}20` }]} />
+        <View style={[styles.batteryTip, { width: size * 0.08, height: size * 0.22, left: size * 0.84, top: size * 0.4, backgroundColor: color }]} />
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: soundOpacity }]}>
+          <Bar width={size * 0.1} height={size * 0.18} color={accent} style={{ left: size * 0.23, top: size * 0.43 }} />
+          <Bar width={size * 0.1} height={size * 0.34} color={accent} style={{ left: size * 0.4, top: size * 0.35 }} />
+          <Bar width={size * 0.1} height={size * 0.24} color={accent} style={{ left: size * 0.57, top: size * 0.4 }} />
+        </Animated.View>
+      </>;
+      break;
+    case 'audio-guard':
+      glyph = <>
+        <View style={[styles.audioGuardBadge, { width: size * 0.64, height: size * 0.68, left: size * 0.18, top: size * 0.12, borderColor: color, borderWidth: stroke, backgroundColor: `${color}25` }]} />
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: soundOpacity }]}>
+          <Bar width={size * 0.08} height={size * 0.17} color={accent} style={{ left: size * 0.31, top: size * 0.43 }} />
+          <Bar width={size * 0.08} height={size * 0.31} color={accent} style={{ left: size * 0.46, top: size * 0.36 }} />
+          <Bar width={size * 0.08} height={size * 0.2} color={accent} style={{ left: size * 0.61, top: size * 0.41 }} />
+        </Animated.View>
+      </>;
+      break;
+    case 'conversation':
+      glyph = <>
+        <View style={[styles.chatBubble, { width: size * 0.76, height: size * 0.56, left: size * 0.1, top: size * 0.18, borderColor: color, borderWidth: stroke, backgroundColor: `${color}35` }]} />
+        {[0.23, 0.42, 0.61].map((left, index) => <Dot key={left} size={size * (index === 1 ? 0.13 : 0.1)} color={index === 1 ? accent : color} style={{ left: size * left, top: size * 0.39 }} />)}
+        <View style={[styles.chatTail, { left: size * 0.2, top: size * 0.65, borderTopColor: color, borderTopWidth: size * 0.18, borderRightWidth: size * 0.18 }]} />
+      </>;
+      break;
+    case 'meeting':
+      glyph = <>
+        <Dot size={size * 0.21} color={color} style={{ left: size * 0.17, top: size * 0.16 }} />
+        <Dot size={size * 0.21} color={accent} style={{ left: size * 0.62, top: size * 0.16 }} />
+        <View style={[styles.cardShape, { width: size * 0.76, height: size * 0.24, left: size * 0.12, top: size * 0.56, borderColor: color, borderWidth: stroke, backgroundColor: `${accent}45` }]} />
+        <Line width={size * 0.18} color={color} top={size * 0.43} left={size * 0.19} />
+        <Line width={size * 0.18} color={accent} top={size * 0.43} left={size * 0.64} />
+        <Animated.View style={[styles.meetingNote, { width: size * 0.2, height: size * 0.17, left: size * 0.4, top: size * 0.42, backgroundColor: accent, transform: [{ translateY: glyphLift }] }]} />
+      </>;
+      break;
+    case 'interview':
+      glyph = <>
+        <View style={[styles.chatBubble, { width: size * 0.55, height: size * 0.42, left: size * 0.08, top: size * 0.16, borderColor: color, borderWidth: stroke, backgroundColor: `${color}30` }]} />
+        <View style={[styles.chatBubble, { width: size * 0.55, height: size * 0.42, left: size * 0.38, top: size * 0.43, borderColor: accent, borderWidth: stroke, backgroundColor: `${accent}55` }]} />
+        <Dot size={size * 0.1} color={accent} style={{ left: size * 0.28, top: size * 0.31 }} />
+        <Dot size={size * 0.1} color={color} style={{ left: size * 0.63, top: size * 0.58 }} />
+      </>;
+      break;
+    case 'lecture':
+      glyph = <>
+        <View style={[styles.bookPage, { width: size * 0.36, height: size * 0.57, left: size * 0.14, top: size * 0.23, borderColor: color, borderWidth: stroke, backgroundColor: `${color}2B` }]} />
+        <View style={[styles.bookPage, { width: size * 0.36, height: size * 0.57, left: size * 0.5, top: size * 0.23, borderColor: accent, borderWidth: stroke, backgroundColor: `${accent}35` }]} />
+        <Line width={size * 0.18} color={color} top={size * 0.43} left={size * 0.23} />
+        <Line width={size * 0.18} color={accent} top={size * 0.52} left={size * 0.58} />
+        <Dot size={size * 0.1} color={accent} style={{ left: size * 0.44, top: size * 0.07 }} />
+      </>;
+      break;
+    case 'doctor-notes':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.62, height: size * 0.72, left: size * 0.19, top: size * 0.17, borderColor: color, borderWidth: stroke, backgroundColor: `${color}2B` }]} />
+        <View style={[styles.meetingNote, { width: size * 0.3, height: size * 0.12, left: size * 0.35, top: size * 0.11, backgroundColor: accent }]} />
+        <Line width={size * 0.32} color={accent} top={size * 0.39} left={size * 0.34} />
+        <Line width={size * 0.32} color={color} top={size * 0.53} left={size * 0.34} />
+        <Line width={size * 0.24} color={color} top={size * 0.67} left={size * 0.34} />
+      </>;
+      break;
+    case 'reflection':
+      glyph = <>
+        <View style={[styles.chatBubble, { width: size * 0.72, height: size * 0.61, left: size * 0.14, top: size * 0.12, borderColor: color, borderWidth: stroke, backgroundColor: `${accent}3A` }]} />
+        <Ring size={size * 0.29} color={accent} width={stroke} style={{ left: size * 0.36, top: size * 0.28 }} />
+        <Dot size={size * 0.1} color={accent} style={{ left: size * 0.17, top: size * 0.76 }} />
+        <Dot size={size * 0.06} color={color} style={{ left: size * 0.31, top: size * 0.69 }} />
+      </>;
+      break;
+    case 'business-call':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.76, height: size * 0.52, left: size * 0.12, top: size * 0.35, borderColor: color, borderWidth: stroke, backgroundColor: `${color}27` }]} />
+        <View style={[styles.cardShape, { width: size * 0.3, height: size * 0.18, left: size * 0.35, top: size * 0.21, borderColor: color, borderWidth: stroke }]} />
+        <Line width={size * 0.45} color={accent} top={size * 0.55} left={size * 0.28} />
+        <Dot size={size * 0.11} color={accent} style={{ left: size * 0.21, top: size * 0.5 }} />
+        <Dot size={size * 0.11} color={accent} style={{ left: size * 0.69, top: size * 0.5 }} />
+      </>;
+      break;
+    case 'sales-call':
+      glyph = <>
+        <View style={[styles.chatBubble, { width: size * 0.76, height: size * 0.65, left: size * 0.12, top: size * 0.12, borderColor: color, borderWidth: stroke, backgroundColor: `${color}27` }]} />
+        <Line width={size * 0.22} color={accent} rotate={-35} top={size * 0.55} left={size * 0.27} />
+        <Line width={size * 0.23} color={accent} rotate={-52} top={size * 0.42} left={size * 0.47} />
+        <Dot size={size * 0.1} color={accent} style={{ left: size * 0.7, top: size * 0.25 }} />
+      </>;
+      break;
+    case 'idea':
+      glyph = <>
+        <Ring size={size * 0.55} color={color} width={stroke} style={{ left: size * 0.23, top: size * 0.1 }} />
+        <Bar width={size * 0.28} height={size * 0.1} color={accent} style={{ left: size * 0.36, top: size * 0.71 }} />
+        <Bar width={size * 0.2} height={size * 0.08} color={color} style={{ left: size * 0.4, top: size * 0.84 }} />
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: soundOpacity }]}>
+          <Dot size={size * 0.09} color={accent} style={{ left: size * 0.08, top: size * 0.29 }} />
+          <Dot size={size * 0.09} color={accent} style={{ left: size * 0.84, top: size * 0.24 }} />
+          <Dot size={size * 0.08} color={accent} style={{ left: size * 0.47, top: size * 0.01 }} />
+        </Animated.View>
+      </>;
+      break;
+    case 'journal':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.62, height: size * 0.72, left: size * 0.13, top: size * 0.13, borderColor: color, borderWidth: stroke, backgroundColor: `${color}2B` }]} />
+        <Bar width={size * 0.07} height={size * 0.55} color={accent} style={{ left: size * 0.24, top: size * 0.22 }} />
+        <Line width={size * 0.27} color={color} top={size * 0.35} left={size * 0.37} />
+        <Line width={size * 0.21} color={color} top={size * 0.51} left={size * 0.37} />
+        <Line width={size * 0.34} color={accent} rotate={-55} top={size * 0.64} left={size * 0.59} />
+      </>;
+      break;
+    case 'conference':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.38, height: size * 0.35, left: size * 0.31, top: size * 0.37, borderColor: color, borderWidth: stroke, backgroundColor: `${color}35` }]} />
+        <Line width={size * 0.25} color={accent} rotate={-58} top={size * 0.21} left={size * 0.49} />
+        <Dot size={size * 0.12} color={accent} style={{ left: size * 0.63, top: size * 0.1 }} />
+        {[0.16, 0.43, 0.7].map((left) => <Dot key={left} size={size * 0.13} color={left === 0.43 ? accent : color} style={{ left: size * left, top: size * 0.78 }} />)}
+      </>;
+      break;
+    case 'planning':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.7, height: size * 0.74, left: size * 0.15, top: size * 0.12, borderColor: color, borderWidth: stroke, backgroundColor: `${color}25` }]} />
+        {[0.31, 0.5, 0.69].map((top) => <React.Fragment key={top}><Dot size={size * 0.08} color={accent} style={{ left: size * 0.25, top: size * top }} /><Line width={size * 0.32} color={color} top={size * top} left={size * 0.41} /></React.Fragment>)}
+      </>;
+      break;
+    case 'battery':
+      glyph = <>
+        <View style={[styles.battery, { width: size * 0.72, height: size * 0.42, left: size * 0.09, top: size * 0.3, borderColor: color, borderWidth: stroke }]} />
+        <View style={[styles.batteryTip, { width: size * 0.09, height: size * 0.2, left: size * 0.82, top: size * 0.41, backgroundColor: color }]} />
+        <View style={[styles.batteryFill, { width: size * 0.42, height: size * 0.22, left: size * 0.19, top: size * 0.4, backgroundColor: accent }]} />
+        <View style={[styles.bolt, { width: size * 0.13, height: size * 0.3, left: size * 0.47, top: size * 0.35, backgroundColor: colors.white }]} />
+      </>;
+      break;
+    case 'room':
+      glyph = <>
+        <View style={[styles.houseRoof, { left: size * 0.13, top: size * 0.05, borderBottomColor: color, borderBottomWidth: size * 0.38, borderLeftWidth: size * 0.37, borderRightWidth: size * 0.37 }]} />
+        <View style={[styles.houseBody, { width: size * 0.64, height: size * 0.43, left: size * 0.18, top: size * 0.43, borderColor: color, borderWidth: stroke, backgroundColor: `${color}45` }]} />
+        <View style={[styles.houseDoor, { width: size * 0.18, height: size * 0.27, left: size * 0.41, top: size * 0.59, backgroundColor: accent }]} />
+        <Dot size={size * 0.08} color={colors.white} style={{ left: size * 0.51, top: size * 0.68 }} />
+      </>;
+      break;
+    case 'import':
+    case 'export': {
+      const exporting = type === 'export';
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.62, height: size * 0.68, left: exporting ? size * 0.08 : size * 0.3, top: size * 0.2, borderColor: color, borderWidth: stroke, backgroundColor: `${color}30` }]} />
+        <Line width={size * 0.48} color={accent} top={size * 0.42} left={exporting ? size * 0.42 : size * 0.1} />
+        <Line width={size * 0.2} color={accent} rotate={45} top={size * 0.3} left={exporting ? size * 0.72 : size * 0.08} />
+        <Line width={size * 0.2} color={accent} rotate={-45} top={size * 0.52} left={exporting ? size * 0.72 : size * 0.08} />
+      </>;
+      break;
+    }
+    case 'save':
+      glyph = <>
+        <View style={[styles.saveBody, { width: size * 0.7, height: size * 0.7, left: size * 0.15, top: size * 0.15, borderColor: color, borderWidth: stroke, backgroundColor: `${color}35` }]} />
+        <View style={[styles.saveSlot, { width: size * 0.38, height: size * 0.22, left: size * 0.31, top: size * 0.2, backgroundColor: accent }]} />
+        <Ring size={size * 0.28} color={accent} width={stroke} style={{ left: size * 0.36, top: size * 0.49 }} />
+      </>;
+      break;
     case 'audio':
       glyph = <View style={styles.barGroup}>{[0.5, 0.8, 1, 0.7, 0.42].map((height, index) => <Bar key={index} width={size * 0.13} height={size * height * 0.7} color={index === 2 ? accent : color} />)}</View>;
       break;
     case 'library':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.39, height: size * 0.18, left: size * 0.12, top: size * 0.18, borderColor: color, borderWidth: stroke, backgroundColor: `${color}30` }]} />
+        <View style={[styles.folderBody, { width: size * 0.78, height: size * 0.54, left: size * 0.11, top: size * 0.33, borderColor: color, borderWidth: stroke, backgroundColor: `${accent}35` }]} />
+        <Line width={size * 0.4} color={accent} top={size * 0.58} left={size * 0.3} />
+        <Dot size={size * 0.09} color={accent} style={{ left: size * 0.71, top: size * 0.44 }} />
+      </>;
+      break;
     case 'grid':
+      glyph = <>
+        {[[0.14, 0.14], [0.54, 0.14], [0.14, 0.54], [0.54, 0.54]].map(([left, top], index) => <View key={index} style={[styles.gridTile, { width: size * 0.3, height: size * 0.3, left: size * left, top: size * top, borderColor: index === 1 ? accent : color, borderWidth: stroke, backgroundColor: `${index === 1 ? accent : color}40` }]} />)}
+      </>;
+      break;
     case 'document':
     case 'data':
       glyph = <>
@@ -170,26 +423,34 @@ export function FuturisticIcon({ name, size = 24, color = colors.accent, accent 
       </>;
       break;
     case 'studio':
+      glyph = <>
+        <View style={[styles.cardShape, { width: size * 0.76, height: size * 0.5, left: size * 0.12, top: size * 0.36, borderColor: color, borderWidth: stroke, backgroundColor: `${color}30` }]} />
+        <View style={[styles.clapperTop, { width: size * 0.76, height: size * 0.19, left: size * 0.12, top: size * 0.17, borderColor: accent, borderWidth: stroke, backgroundColor: `${accent}55` }]} />
+        <View style={[styles.play, { left: size * 0.42, top: size * 0.48, borderLeftColor: accent, borderLeftWidth: size * 0.19, borderTopWidth: size * 0.14, borderBottomWidth: size * 0.14 }]} />
+        <Line width={size * 0.13} color={color} rotate={-45} top={size * 0.22} left={size * 0.27} />
+        <Line width={size * 0.13} color={color} rotate={-45} top={size * 0.22} left={size * 0.59} />
+      </>;
+      break;
     case 'spark':
       glyph = <>
         <View style={[styles.spark, { width: size * 0.52, height: size * 0.52, left: center - size * 0.26, top: center - size * 0.26, backgroundColor: `${color}88`, borderColor: color, borderWidth: stroke }]} />
         <View style={[styles.sparkSmall, { width: size * 0.18, height: size * 0.18, left: size * 0.68, top: size * 0.12, backgroundColor: accent }]} />
-        <Line width={size * 0.22} color={accent} rotate={90} top={size * 0.72} left={size * 0.15} />
-        <Line width={size * 0.22} color={accent} top={size * 0.72} left={size * 0.15} />
+        <Dot size={size * 0.11} color={accent} style={{ left: size * 0.16, top: size * 0.74 }} />
       </>;
       break;
     case 'settings':
       glyph = <>
-        <Ring size={size * 0.66} color={color} width={stroke * 1.15} style={{ left: size * 0.17, top: size * 0.17 }} />
-        {[0, 45, 90, 135].map((rotation) => <Line key={rotation} width={size * 0.18} color={accent} rotate={rotation} top={center - size * 0.03} left={center - size * 0.09} />)}
-        <Dot size={size * 0.14} color={accent} style={{ left: center - size * 0.07, top: center - size * 0.07 }} />
+        {[0.26, 0.5, 0.74].map((top) => <Line key={top} width={size * 0.72} color={color} top={size * top} left={size * 0.14} />)}
+        <Dot size={size * 0.19} color={accent} style={{ left: size * 0.27, top: size * 0.21 }} />
+        <Dot size={size * 0.19} color={accent} style={{ left: size * 0.64, top: size * 0.45 }} />
+        <Dot size={size * 0.19} color={accent} style={{ left: size * 0.4, top: size * 0.69 }} />
       </>;
       break;
     case 'dual':
       glyph = <><Ring size={size * 0.58} color={color} width={stroke} style={{ left: size * 0.03, top: size * 0.21 }} /><Ring size={size * 0.58} color={accent} width={stroke} style={{ left: size * 0.39, top: size * 0.21 }} /><Line width={size * 0.31} color={colors.white} top={center - size * 0.03} left={size * 0.35} /></>;
       break;
     case 'security':
-      glyph = <><View style={[styles.shield, { width: size * 0.6, height: size * 0.7, left: size * 0.2, top: size * 0.13, borderColor: color, borderWidth: stroke, backgroundColor: `${color}58` }]} /><Line width={size * 0.27} color={accent} rotate={90} top={size * 0.32} left={size * 0.37} /><Line width={size * 0.27} color={accent} top={size * 0.47} left={size * 0.37} /><Dot size={size * 0.12} color={colors.white} style={{ left: size * 0.44, top: size * 0.61 }} /></>;
+      glyph = <><View style={[styles.shield, { width: size * 0.6, height: size * 0.7, left: size * 0.2, top: size * 0.13, borderColor: color, borderWidth: stroke, backgroundColor: `${color}58` }]} /><Ring size={size * 0.27} color={accent} width={stroke} style={{ left: size * 0.37, top: size * 0.34 }} /><Dot size={size * 0.09} color={colors.white} style={{ left: size * 0.46, top: size * 0.43 }} /></>;
       break;
     case 'monitor':
       glyph = <><View style={[styles.eye, { width: size * 0.82, height: size * 0.54, left: size * 0.09, top: size * 0.23, borderColor: color, borderWidth: stroke, backgroundColor: `${color}42` }]} /><Ring size={size * 0.3} color={accent} width={stroke} style={{ left: size * 0.35, top: size * 0.35 }} /><Dot size={size * 0.12} color={colors.white} style={{ left: center - size * 0.06, top: center - size * 0.06 }} /></>;
@@ -262,16 +523,23 @@ const styles = StyleSheet.create({
   framedBubble: { position: 'absolute' },
   iconGlint: { position: 'absolute', backgroundColor: '#FFFFFFC9' },
   dot: { position: 'absolute', shadowOpacity: 0.28, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
+  recordDot: { position: 'absolute', shadowColor: colors.yellow, shadowOpacity: 0.5, shadowRadius: 5 },
   bar: { position: 'absolute', shadowOpacity: 0.22, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
   barGroup: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
   ring: { position: 'absolute', backgroundColor: 'transparent' },
   line: { position: 'absolute', transformOrigin: 'center', shadowOpacity: 0.18, shadowRadius: 1.5, shadowOffset: { width: 0, height: 1 } },
   diamond: { position: 'absolute', transform: [{ rotate: '45deg' }], borderRadius: 5 },
   cardShape: { position: 'absolute', borderRadius: 6 },
+  folderBody: { position: 'absolute', borderRadius: 5, borderTopLeftRadius: 2 },
+  gridTile: { position: 'absolute', borderRadius: 5 },
+  clapperTop: { position: 'absolute', borderRadius: 4, transform: [{ rotate: '-8deg' }] },
+  bookPage: { position: 'absolute', borderRadius: 4 },
+  meetingNote: { position: 'absolute', borderRadius: 3 },
   shoulder: { position: 'absolute', backgroundColor: 'transparent' },
   spark: { position: 'absolute', transform: [{ rotate: '45deg' }], borderRadius: 7 },
   sparkSmall: { position: 'absolute', transform: [{ rotate: '45deg' }], borderRadius: 3 },
   shield: { position: 'absolute', borderRadius: 9, transform: [{ rotate: '45deg' }] },
+  audioGuardBadge: { position: 'absolute', borderTopLeftRadius: 9, borderTopRightRadius: 9, borderBottomLeftRadius: 13, borderBottomRightRadius: 13 },
   eye: { position: 'absolute', borderRadius: 99, transform: [{ rotate: '45deg' }] },
   vehicle: { position: 'absolute', borderRadius: 8 },
   lockBody: { position: 'absolute', borderRadius: 7 },
@@ -280,4 +548,20 @@ const styles = StyleSheet.create({
   bolt: { position: 'absolute', transform: [{ skewX: '-22deg' }] },
   play: { position: 'absolute', width: 0, height: 0, backgroundColor: 'transparent', borderTopColor: 'transparent', borderBottomColor: 'transparent', borderRightWidth: 0 },
   stop: { position: 'absolute', borderRadius: 6 },
+  emojiGlyph: { position: 'absolute', textAlign: 'center', includeFontPadding: false },
+  cameraBody: { position: 'absolute', borderRadius: 6 },
+  cameraTop: { position: 'absolute', borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  phone: { position: 'absolute', borderRadius: 7 },
+  microphone: { position: 'absolute', borderRadius: 99 },
+  micCradle: { position: 'absolute', borderTopWidth: 0, borderBottomLeftRadius: 99, borderBottomRightRadius: 99, backgroundColor: 'transparent' },
+  chatBubble: { position: 'absolute', borderRadius: 9 },
+  chatTail: { position: 'absolute', width: 0, height: 0, borderRightColor: 'transparent' },
+  battery: { position: 'absolute', borderRadius: 5 },
+  batteryTip: { position: 'absolute', borderTopRightRadius: 3, borderBottomRightRadius: 3 },
+  batteryFill: { position: 'absolute', borderRadius: 3 },
+  houseRoof: { position: 'absolute', width: 0, height: 0, borderLeftColor: 'transparent', borderRightColor: 'transparent' },
+  houseBody: { position: 'absolute', borderRadius: 4, borderTopWidth: 0 },
+  houseDoor: { position: 'absolute', borderTopLeftRadius: 4, borderTopRightRadius: 4 },
+  saveBody: { position: 'absolute', borderRadius: 6 },
+  saveSlot: { position: 'absolute', borderRadius: 3 },
 });

@@ -9,7 +9,7 @@ export interface NativeDualRecordingResult {
 
 interface NativeMulticamModule {
   isSupportedAsync(): Promise<boolean>;
-  startRecording(sessionId: string, quality: string, fps: number): Promise<{ frontUri?: string; rearUri?: string }>;
+  startRecording(sessionId: string, quality: string, fps: number, microphone: boolean): Promise<{ frontUri?: string; rearUri?: string }>;
   stopRecording(): Promise<NativeDualRecordingResult>;
 }
 
@@ -20,9 +20,9 @@ export const multicam = {
   async isSupportedAsync(): Promise<boolean> {
     return nativeModule ? nativeModule.isSupportedAsync() : false;
   },
-  async startRecording(sessionId: string, quality: string, fps: number) {
+  async startRecording(sessionId: string, quality: string, fps: number, microphone: boolean) {
     if (!nativeModule) throw new Error('MULTICAM_NATIVE_MODULE_UNAVAILABLE');
-    return nativeModule.startRecording(sessionId, quality, fps);
+    return nativeModule.startRecording(sessionId, quality, fps, microphone);
   },
   async stopRecording() {
     if (!nativeModule) throw new Error('MULTICAM_NATIVE_MODULE_UNAVAILABLE');

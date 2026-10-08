@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, SafeAreaView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { AnalyzeScreen } from '../screens/AnalyzeScreen';
@@ -16,28 +16,33 @@ import { useApp } from '../context/AppContext';
 import { isAudioQuickCaptureMode, QuickCaptureMode, quickCaptureModes } from '../features/quickCapture/config';
 
 type Tab = 'capture' | 'audio' | 'library' | 'people' | 'analyze' | 'studio' | 'settings';
-type Deck = 'record' | 'more' | null;
+type Deck = 'record' | null;
+const TAB_BAR_HEIGHT = 76;
 
-const leftTabs: { id: Tab; label: string; icon: string }[] = [
-  { id: 'library', label: 'Library', icon: 'library' },
-  { id: 'people', label: 'People', icon: 'people' },
+const leftTabs: { id: Tab; label: string; icon: string; accent: string }[] = [
+  { id: 'capture', label: 'Camera', icon: 'rear-camera', accent: colors.accent },
+  { id: 'audio', label: 'Audio', icon: 'microphone', accent: colors.aqua },
+  { id: 'people', label: 'People', icon: 'people', accent: colors.blue },
 ];
 
-const rightTabs: { id: Tab | 'more'; label: string; icon: string }[] = [
-  { id: 'studio', label: 'Studio', icon: 'studio' },
-  { id: 'more', label: 'More', icon: 'grid' },
+const rightTabs: { id: Tab; label: string; icon: string; accent: string }[] = [
+  { id: 'studio', label: 'Studio', icon: 'studio', accent: colors.purple },
+  { id: 'library', label: 'Library', icon: 'library', accent: colors.blue },
+  { id: 'settings', label: 'Settings', icon: 'settings', accent: colors.orange },
 ];
 
 const recordActions = [
-  { id: 'camera', label: 'Camera', detail: 'Front · rear · dual', icon: 'capture', color: colors.accent },
-  { id: 'audio', label: 'Audio', detail: 'Mic · voice · notes', icon: 'audio', color: colors.aqua },
+  { id: 'camera', label: 'Camera', detail: 'Front · rear · dual', icon: 'rear-camera', color: colors.accent },
+  { id: 'audio', label: 'Audio', detail: 'Mic · voice · notes', icon: 'microphone', color: colors.aqua },
   { id: 'drive', label: 'Drive', detail: 'Road · cabin · GPS', icon: 'vehicle', color: colors.yellow },
   { id: 'room', label: 'Room', detail: 'Local room watch', icon: 'security', color: colors.purple },
   { id: 'podcast', label: 'Podcast', detail: 'Mic · multicamera', icon: 'podcast', color: '#FF8DA1' },
   { id: 'quick', label: 'Quick', detail: 'Your saved action', icon: 'bolt', color: colors.orange },
 ] as const;
 
-function NavTab({ item, selected, onPress, reducedMotion }: { item: { id: string; label: string; icon: string }; selected: boolean; onPress: () => void; reducedMotion: boolean }) {
+type NavItem = { id: Tab; label: string; icon: string; accent: string };
+
+function NavTab({ item, selected, onPress, reducedMotion, linked = false }: { item: NavItem; selected: boolean; onPress: () => void; reducedMotion: boolean; linked?: boolean }) {
   const selection = useRef(new Animated.Value(selected ? 1 : 0)).current;
   useEffect(() => {
     if (reducedMotion) { selection.setValue(selected ? 1 : 0); return; }
@@ -48,13 +53,39 @@ function NavTab({ item, selected, onPress, reducedMotion }: { item: { id: string
   const scale = selection.interpolate({ inputRange: [0, 1], outputRange: [1, 1.11] });
   const translateY = selection.interpolate({ inputRange: [0, 1], outputRange: [0, -3] });
   const glowOpacity = selection.interpolate({ inputRange: [0, 1], outputRange: [0, 0.8] });
-  return <Pressable onPress={onPress} style={({ pressed }) => [styles.tab, pressed && styles.tabPressed]} accessibilityRole="tab" accessibilityState={{ selected }} accessibilityLabel={item.label}>
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.tab, linked && styles.linkedTab, pressed && styles.tabPressed]} accessibilityRole="tab" accessibilityState={{ selected }} accessibilityLabel={item.label}>
     <Animated.View pointerEvents="none" style={[styles.navGlow, { opacity: glowOpacity }]} />
-    <Animated.View style={[styles.iconWrap, selected && styles.iconWrapSelected, { transform: [{ scale }, { translateY }] }]}>
-      <FuturisticIcon name={item.icon} size={21} color={selected ? colors.navy : '#90A7C0'} accent={selected ? colors.accent : '#4D6A87'} />
+    <Animated.View style={[styles.iconWrap, linked && styles.linkedIconWrap, selected && styles.iconWrapSelected, { transform: [{ scale }, { translateY }] }]}>
+      <FuturisticIcon name={item.icon} size={linked ? 20 : 23} color={selected ? colors.navy : '#58738E'} accent={item.accent} animated />
     </Animated.View>
     <Text numberOfLines={1} style={[styles.tabLabel, selected && styles.tabLabelSelected]}>{item.label}</Text>
   </Pressable>;
+}
+
+function LinkedCaptureTabs({ items, tab, onOpen, reducedMotion }: { items: readonly [NavItem, NavItem]; tab: Tab; onOpen: (tab: Tab) => void; reducedMotion: boolean }) {
+  const signal = useRef(new Animated.Value(0)).current;
+  const active = tab === items[0].id || tab === items[1].id;
+  useEffect(() => {
+    if (reducedMotion) { signal.setValue(0.5); return; }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(signal, { toValue: 1, duration: 950, useNativeDriver: true }),
+      Animated.timing(signal, { toValue: 0, duration: 950, useNativeDriver: true }),
+      Animated.delay(420),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [reducedMotion, signal]);
+  const sparkX = signal.interpolate({ inputRange: [0, 1], outputRange: [-13, 13] });
+  const sparkScale = signal.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.72, 1.15, 0.72] });
+  const beamOpacity = signal.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.28, 0.92, 0.28] });
+  return <View style={[styles.capturePair, active && styles.capturePairActive]} accessibilityLabel="Linked camera and audio tools">
+    <View pointerEvents="none" style={styles.capturePairHalftone}><View style={styles.capturePairDot} /><View style={styles.capturePairDot} /><View style={styles.capturePairDot} /></View>
+    <Animated.View pointerEvents="none" style={[styles.capturePairBeam, { opacity: beamOpacity }]} />
+    <Animated.View pointerEvents="none" style={[styles.capturePairSpark, { transform: [{ translateX: sparkX }, { scale: sparkScale }, { rotate: '45deg' }] }]} />
+    <NavTab item={items[0]} selected={tab === items[0].id} onPress={() => onOpen(items[0].id)} reducedMotion={reducedMotion} linked />
+    <View pointerEvents="none" style={styles.capturePairSeam} />
+    <NavTab item={items[1]} selected={tab === items[1].id} onPress={() => onOpen(items[1].id)} reducedMotion={reducedMotion} linked />
+  </View>;
 }
 
 function RecordHubButton({ selected, active, open, onPress, reducedMotion }: { selected: boolean; active: boolean; open: boolean; onPress: () => void; reducedMotion: boolean }) {
@@ -78,7 +109,7 @@ function RecordHubButton({ selected, active, open, onPress, reducedMotion }: { s
     <Animated.View pointerEvents="none" style={[styles.recordOrbit, { transform: [{ rotate }] }]}><View style={styles.orbitSpark} /><View style={styles.orbitSparkTwo} /></Animated.View>
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ expanded: open, selected }} accessibilityLabel={active ? 'Open active recording' : 'Open recording modes'} style={({ pressed }) => [styles.recordButton, active && styles.recordButtonLive, selected && styles.recordButtonSelected, pressed && styles.recordButtonPressed]}>
       <LinearGradient colors={active ? ['#FF6C74', '#DD3048'] : ['#54D5FF', '#278BFF']} style={styles.recordButtonGradient}>
-        <FuturisticIcon name={active ? 'stop' : 'capture'} size={28} color={colors.white} accent={active ? colors.white : colors.yellow} />
+        <FuturisticIcon name={active ? 'stop' : 'record'} size={28} color={colors.white} accent={active ? colors.white : colors.yellow} animated />
       </LinearGradient>
     </Pressable>
     <Text style={[styles.recordLabel, active && styles.recordLabelLive]}>{active ? 'LIVE' : 'RECORD'}</Text>
@@ -97,7 +128,7 @@ function DeckAction({ label, detail, icon, color, index, onPress, reducedMotion 
   const scale = entrance.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] });
   return <Animated.View style={[styles.deckActionWrap, { opacity: entrance, transform: [{ translateY }, { scale }] }]}>
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}. ${detail}`} style={({ pressed }) => [styles.deckAction, { borderColor: `${color}88` }, pressed && styles.deckActionPressed]}>
-      <View style={[styles.deckActionIcon, { backgroundColor: `${color}24`, borderColor: color }]}><FuturisticIcon name={icon} size={24} color={color} accent={colors.white} /></View>
+      <View style={[styles.deckActionIcon, { backgroundColor: `${color}24`, borderColor: color }]}><FuturisticIcon name={icon} size={24} color={color} accent={colors.white} animated /></View>
       <View style={styles.deckActionCopy}><Text style={styles.deckActionLabel}>{label}</Text><Text numberOfLines={2} style={styles.deckActionDetail}>{detail}</Text></View>
       <Text style={[styles.deckActionArrow, { color }]}>›</Text>
     </Pressable>
@@ -115,6 +146,8 @@ export function AppNavigator() {
   const screenTranslate = useRef(new Animated.Value(0)).current;
   const deckProgress = useRef(new Animated.Value(0)).current;
   const reducedMotion = useReducedMotion();
+  const { width: windowWidth } = useWindowDimensions();
+  const navWidth = Platform.OS === 'web' && typeof window !== 'undefined' ? Math.min(window.innerWidth, 360) : windowWidth;
   const quickMode = quickCaptureModes.find((item) => item.id === quickCaptureMode) ?? quickCaptureModes[0];
 
   useEffect(() => {
@@ -197,13 +230,12 @@ export function AppNavigator() {
     library: <LibraryScreen />,
     people: <PeopleScreen />,
     analyze: <AnalyzeScreen />,
-    studio: <StudioScreen />,
+    studio: <StudioScreen onOpenAnalyze={() => openTab('analyze')} />,
     settings: <SettingsScreen />,
   }[tab];
 
   const deckTranslate = deckProgress.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
   const deckScale = deckProgress.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] });
-  const utilitySelected = tab === 'analyze' || tab === 'settings' || deck === 'more';
   const recordSelected = tab === 'capture' || tab === 'audio' || deck === 'record';
 
   return <LinearGradient colors={[colors.background, '#EAF7FF', colors.background]} style={styles.gradient}>
@@ -215,25 +247,22 @@ export function AppNavigator() {
         <Animated.View style={[styles.deckCard, { opacity: deckProgress, transform: [{ translateY: deckTranslate }, { scale: deckScale }] }]}>
           <View style={styles.deckHandle} />
           <View style={styles.deckHeader}>
-            <View><Text style={styles.deckEyebrow}>{deck === 'record' ? 'SAFEBRO CAPTURE DECK' : 'TOOLS & CONTROL'}</Text><Text style={styles.deckTitle}>{deck === 'record' ? 'Choose what to record' : 'More workspaces'}</Text></View>
+            <View><Text style={styles.deckEyebrow}>SAFEBRO CAPTURE DECK</Text><Text style={styles.deckTitle}>Choose what to record</Text></View>
             <View style={styles.deckSignal}><View style={styles.deckSignalDot} /><Text style={styles.deckSignalText}>LOCAL</Text></View>
           </View>
           <View style={styles.deckGrid}>
-            {deck === 'record' ? recordActions.map((action, index) => <DeckAction key={action.id} {...action} detail={action.id === 'quick' ? quickMode.label : action.detail} index={index} reducedMotion={reducedMotion} onPress={() => openRecordAction(action.id)} />) : <>
-              <DeckAction label="Analyze" detail="Signals and local insights" icon="analyze" color={colors.aqua} index={0} reducedMotion={reducedMotion} onPress={() => openTab('analyze')} />
-              <DeckAction label="Settings" detail="Privacy, shortcuts and controls" icon="settings" color={colors.purple} index={1} reducedMotion={reducedMotion} onPress={() => openTab('settings')} />
-            </>}
+            {recordActions.map((action, index) => <DeckAction key={action.id} {...action} detail={action.id === 'quick' ? quickMode.label : action.detail} index={index} reducedMotion={reducedMotion} onPress={() => openRecordAction(action.id)} />)}
           </View>
-          {deck === 'record' ? <Text style={styles.deckFootnote}>Tap a mode to open its full controls. Nothing records until you press Start.</Text> : null}
+          <Text style={styles.deckFootnote}>Tap a mode to open its full controls. Nothing records until you press Start.</Text>
         </Animated.View>
       </View> : null}
       {navigationWarning ? <View style={styles.navWarning}><Text style={styles.navWarningText}>{navigationWarning}</Text></View> : null}
-      <View style={styles.tabBarShell}>
-        <LinearGradient colors={['#071A33', '#0D2A4E', '#071A33']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tabBar}>
-          {leftTabs.map((item) => <NavTab key={item.id} item={item} selected={tab === item.id} onPress={() => openTab(item.id)} reducedMotion={reducedMotion} />)}
+      <View style={[styles.tabBarShell, { width: navWidth, maxWidth: navWidth }]}>
+        <LinearGradient colors={[colors.cream, '#F1F8FC', '#EAF5FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tabBar}>
+          <LinkedCaptureTabs items={[leftTabs[0], leftTabs[1]]} tab={tab} onOpen={openTab} reducedMotion={reducedMotion} />
+          <NavTab item={leftTabs[2]} selected={tab === leftTabs[2].id} onPress={() => openTab(leftTabs[2].id)} reducedMotion={reducedMotion} />
           <RecordHubButton selected={recordSelected} active={Boolean(activeSession)} open={deck === 'record'} onPress={openRecordHub} reducedMotion={reducedMotion} />
-          <NavTab item={rightTabs[0]} selected={tab === 'studio'} onPress={() => openTab('studio')} reducedMotion={reducedMotion} />
-          <NavTab item={rightTabs[1]} selected={utilitySelected} onPress={() => toggleDeck('more')} reducedMotion={reducedMotion} />
+          {rightTabs.map((item) => <NavTab key={item.id} item={item} selected={tab === item.id || (item.id === 'studio' && tab === 'analyze')} onPress={() => openTab(item.id)} reducedMotion={reducedMotion} />)}
         </LinearGradient>
       </View>
     </SafeAreaView>
@@ -244,15 +273,24 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   safe: { flex: 1, backgroundColor: 'transparent' },
   screen: { flex: 1 },
-  tabBarShell: { zIndex: 30, backgroundColor: '#071A33', borderTopWidth: 1, borderTopColor: '#68D7FF88' },
-  tabBar: { minHeight: 88, flexDirection: 'row', alignItems: 'center', paddingTop: 7, paddingHorizontal: 4, shadowColor: colors.navy, shadowOpacity: 0.34, shadowRadius: 18, shadowOffset: { width: 0, height: -8 } },
-  tab: { flex: 1, minWidth: 0, height: 68, alignItems: 'center', justifyContent: 'center', gap: 3, position: 'relative' },
+  tabBarShell: { zIndex: 30, backgroundColor: colors.cream, borderTopWidth: 1, borderTopColor: '#C8E4F3' },
+  tabBar: { minHeight: TAB_BAR_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingTop: 3, paddingHorizontal: 4, shadowColor: colors.navy, shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: -3 } },
+  tab: { flex: 1, minWidth: 0, height: 64, alignItems: 'center', justifyContent: 'center', gap: 3, position: 'relative' },
+  linkedTab: { height: 58, gap: 1, zIndex: 2 },
   tabPressed: { opacity: 0.76, transform: [{ scale: 0.95 }] },
   navGlow: { position: 'absolute', top: 5, width: 42, height: 42, borderRadius: 21, backgroundColor: '#49D8FF33', shadowColor: '#49D8FF', shadowOpacity: 0.9, shadowRadius: 11, shadowOffset: { width: 0, height: 0 } },
   iconWrap: { width: 39, height: 36, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
+  linkedIconWrap: { width: 34, height: 32, borderRadius: 11 },
   iconWrapSelected: { backgroundColor: '#E9FAFF', borderColor: '#65DFFF', shadowColor: '#65DFFF', shadowOpacity: 0.75, shadowRadius: 7, shadowOffset: { width: 0, height: 0 } },
-  tabLabel: { ...typography.caption, color: '#8EA7C1', fontSize: 9, lineHeight: 12, fontWeight: '700' },
-  tabLabelSelected: { color: colors.white, fontWeight: '900' },
+  tabLabel: { ...typography.caption, color: '#58738E', fontSize: 9, lineHeight: 12, fontWeight: '700' },
+  tabLabelSelected: { color: colors.navy, fontWeight: '900' },
+  capturePair: { flex: 2, minWidth: 0, height: 62, marginHorizontal: 2, borderWidth: 1.5, borderColor: '#183F66', borderRadius: 18, borderTopRightRadius: 11, borderBottomLeftRadius: 11, backgroundColor: '#DFF5FF', flexDirection: 'row', alignItems: 'center', position: 'relative', overflow: 'hidden', shadowColor: colors.navy, shadowOpacity: 0.16, shadowRadius: 2, shadowOffset: { width: 0, height: 3 } },
+  capturePairActive: { borderColor: '#39C8F5', backgroundColor: '#E9FBFF', shadowColor: '#39C8F5', shadowOpacity: 0.38, shadowRadius: 7 },
+  capturePairHalftone: { position: 'absolute', left: 5, top: 5, flexDirection: 'row', gap: 2, transform: [{ rotate: '-8deg' }] },
+  capturePairDot: { width: 2.5, height: 2.5, borderRadius: 2, backgroundColor: '#4E80A955' },
+  capturePairBeam: { position: 'absolute', zIndex: 3, left: '50%', top: 27, width: 28, height: 2, marginLeft: -14, borderRadius: 2, backgroundColor: colors.aqua, shadowColor: colors.aqua, shadowOpacity: 0.8, shadowRadius: 4 },
+  capturePairSpark: { position: 'absolute', zIndex: 4, left: '50%', top: 23, width: 9, height: 9, marginLeft: -4.5, borderRadius: 2, backgroundColor: colors.yellow, borderWidth: 1, borderColor: colors.white, shadowColor: colors.yellow, shadowOpacity: 0.9, shadowRadius: 5 },
+  capturePairSeam: { position: 'absolute', zIndex: 1, left: '50%', top: 8, bottom: 8, width: 1, backgroundColor: '#4E80A944', transform: [{ rotate: '5deg' }] },
   recordSlot: { width: 78, height: 88, alignItems: 'center', justifyContent: 'flex-start', marginTop: -24, position: 'relative' },
   recordPulse: { position: 'absolute', top: 3, width: 68, height: 68, borderRadius: 34, borderWidth: 2, borderColor: '#6BE6FF' },
   recordOrbit: { position: 'absolute', top: 0, width: 74, height: 74, borderRadius: 37, borderWidth: 1, borderStyle: 'dashed', borderColor: '#85EAFF88' },
@@ -263,9 +301,9 @@ const styles = StyleSheet.create({
   recordButtonLive: { shadowColor: colors.red },
   recordButtonPressed: { transform: [{ rotate: '-3deg' }, { scale: 0.91 }] },
   recordButtonGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  recordLabel: { ...typography.label, color: colors.white, fontSize: 8, lineHeight: 10, marginTop: 4, letterSpacing: 0.85 },
-  recordLabelLive: { color: '#FFADB4' },
-  deckLayer: { position: 'absolute', zIndex: 20, top: 0, right: 0, bottom: 88, left: 0, justifyContent: 'flex-end' },
+  recordLabel: { ...typography.label, color: colors.navy, fontSize: 8, lineHeight: 10, marginTop: 4, letterSpacing: 0.85 },
+  recordLabelLive: { color: '#B83145' },
+  deckLayer: { position: 'absolute', zIndex: 20, top: 0, right: 0, bottom: TAB_BAR_HEIGHT, left: 0, justifyContent: 'flex-end' },
   deckBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#04132677' },
   deckCard: { marginHorizontal: 10, marginBottom: 9, padding: 16, paddingTop: 11, borderRadius: 24, borderBottomRightRadius: 11, borderWidth: 1.5, borderColor: '#62DBFF99', backgroundColor: '#071C36F7', shadowColor: colors.navy, shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
   deckHandle: { width: 48, height: 4, alignSelf: 'center', borderRadius: 2, backgroundColor: '#5DDFFF88', marginBottom: 12 },

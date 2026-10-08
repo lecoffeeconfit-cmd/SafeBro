@@ -4,32 +4,76 @@
     "slug": "sentinel-mobile",
     "version": "0.1.0",
     "orientation": "default",
+    "icon": "./assets/safebro-app-icon.png",
     "userInterfaceStyle": "light",
     "scheme": "sentinel",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sentinel.mobile",
+      "deploymentTarget": "13.4",
+      "bundleIdentifier": "com.lecoffeeconfit.safebro",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "SafeBro uses the microphone to record audio and analyze your own recordings locally.",
+        "NSMicrophoneUsageDescription": "SafeBro uses the microphone for audio and video recordings you start, and for Voice Trigger while armed.",
         "NSCameraUsageDescription": "SafeBro uses the camera for recordings you start.",
         "NSSpeechRecognitionUsageDescription": "SafeBro listens for your chosen voice trigger only while Voice Trigger is visibly armed.",
         "NSPhotoLibraryUsageDescription": "SafeBro lets you attach selected photos to recordings you create.",
         "NSLocationWhenInUseUsageDescription": "SafeBro uses location during a trip you record to show speed and store route points locally.",
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
-      "permissions": ["RECORD_AUDIO", "CAMERA", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MICROPHONE"],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
+        "foregroundImage": "./assets/safebro-app-icon.png",
         "backgroundColor": "#FFF9E9"
       }
     },
+    "web": {
+      "favicon": "./assets/safebro-favicon.png"
+    },
     "plugins": [
-      ["expo-camera", { "cameraPermission": "SafeBro uses the camera for recordings you start." }],
-      ["expo-av", { "microphonePermission": "SafeBro uses the microphone to record audio you start." }],
-      ["expo-location", { "locationWhenInUsePermission": "SafeBro uses location during a trip you record to show speed and store route points locally." }]
-      ,["expo-image-picker", { "photosPermission": "SafeBro lets you attach selected photos to recordings you create." }]
-    ]
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "SafeBro uses the camera for recordings you start.",
+          "microphonePermission": "SafeBro uses the microphone for audio and video recordings you start, and for Voice Trigger while armed."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "SafeBro uses the microphone for audio and video recordings you start, and for Voice Trigger while armed."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "SafeBro uses location during a trip you record to show speed and store route points locally."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "SafeBro lets you attach selected photos to recordings you create."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "be51bd6d-c42c-4a00-b4ca-0de20c24e3d0"
+      }
+    }
   }
 }
